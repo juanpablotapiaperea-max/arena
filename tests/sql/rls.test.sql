@@ -115,7 +115,7 @@ select t_assert((select count(*) from match_secrets) = 1, 'admin lee secretos de
 update teams set attack = 99 where key = 'kings';
 select t_assert((select count(*) from admin_log where entity = 'teams' and action = 'UPDATE') = 1, 'cambio queda en bitácora');
 select public.undo_admin_change((select id from admin_log where entity = 'teams' and action = 'UPDATE'));
-select t_assert((select attack from teams where key = 'kings') = 93, 'deshacer restaura el valor');
+select t_assert((select attack from teams where key = 'kings') = (select (before ->> 'attack')::numeric from admin_log where entity = 'teams' and action = 'UPDATE'), 'deshacer restaura el valor');
 select t_assert((select undone_at is not null from admin_log where entity = 'teams' and action = 'UPDATE'), 'marca deshecho');
 insert into admin_biases (team_id, scope, multiplier) select id, 'match', 0.8 from teams where key = 'ducks';
 select public.undo_admin_change((select max(id) from admin_log where entity = 'admin_biases'));
@@ -137,5 +137,16 @@ do $$ begin
   end;
 end $$;
 reset role;
+
+
+-- ═══ Atributos derivados ═══
+-- Tras el seed, cada equipo reproduce sus atributos de la sección 17 (±1).
+select t_assert((select count(*) from teams t
+  where abs(t.attack - (select 93)) > 1 and t.key = 'kings') = 0, 'Kings ataque ±1');
+select t_assert((select max(abs(attack - round(attack))) from teams) is not null, 'atributos calculados');
+update players set injury_days = 5 where id = (select id from players where team_id = (select id from teams where key='kings') and position='G' order by rating desc limit 1);
+select t_assert((select goalie from teams where key = 'kings') < 90, 'portero lesionado: entra el suplente');
+update players set injury_days = 0 where team_id = (select id from teams where key='kings');
+select t_assert((select abs(goalie - 92) <= 1 from teams where key = 'kings'), 'vuelve el titular');
 
 select 'RLS OK' as resultado;
