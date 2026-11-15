@@ -9,6 +9,7 @@ P="psql -q -v ON_ERROR_STOP=1 -d $DB"
 $P -f tests/sql/supabase_stub.sql
 for f in supabase/migrations/*.sql; do $P -f "$f"; done
 $P -f supabase/seed.sql
+$P -f supabase/legacy.sql
 OUT=$($P -tA -f tests/sql/rls.test.sql)
 grep -q "^RLS OK$" <<<"$OUT" || { echo "$OUT"; exit 1; }
 echo "OK: migraciones, seed y RLS"

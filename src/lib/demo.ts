@@ -1,9 +1,11 @@
 // Datos de demostración generados en el navegador a partir de la sección 17.
 import { generateAllRosters, generateTeams } from '@shared/data/generate';
 import { COMPETITIONS } from '@shared/data/competitions';
-import type { Competition, Player, RankingEntry, Team } from './types';
+import { parseLegacyMarkdown } from '../../scripts/legacy-parser';
+import legacyMd from '../../data/legacy/historial-base44.md?raw';
+import type { Competition, LegacyEdition, Player, RankingEntry, Team } from './types';
 
-let cache: { teams: Team[]; players: Player[]; ranking: RankingEntry[]; competitions: Competition[] } | null = null;
+let cache: { teams: Team[]; players: Player[]; ranking: RankingEntry[]; competitions: Competition[]; legacy: LegacyEdition[] } | null = null;
 
 export function demoData() {
   if (cache) return cache;
@@ -58,6 +60,18 @@ export function demoData() {
     participant_rule: c.participantRule,
     config: c.config,
   }));
-  cache = { teams, players, ranking, competitions };
+  const byName = new Map(teams.map((t) => [t.name.toLowerCase(), t.id]));
+  const legacy: LegacyEdition[] = parseLegacyMarkdown(legacyMd).map((e) => ({
+    id: `legacy-${e.order}`,
+    competition_name: e.competition,
+    season_label: e.season,
+    champion_name: e.champion,
+    runner_up_name: e.runnerUp,
+    champion_team_id: e.champion ? byName.get(e.champion.toLowerCase()) ?? null : null,
+    runner_up_team_id: e.runnerUp ? byName.get(e.runnerUp.toLowerCase()) ?? null : null,
+    top3: e.standings.slice(0, 3).map((x) => x.team),
+    import_order: e.order,
+  }));
+  cache = { teams, players, ranking, competitions, legacy };
   return cache;
 }

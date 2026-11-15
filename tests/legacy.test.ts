@@ -35,3 +35,20 @@ describe('importación del historial', () => {
     expect(eds[1]).toMatchObject({ competition: 'TECATE', season: null, champion: 'Ducks', runnerUp: null });
   });
 });
+
+describe('historial real de la app anterior', () => {
+  it('trae 171 ediciones y cuadra con los títulos de la sección 17', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { SEED_TEAMS } = await import('../shared/data/teams.ts');
+    const eds = parseLegacyMarkdown(readFileSync(new URL('../data/legacy/historial-base44.md', import.meta.url), 'utf8'));
+    expect(eds).toHaveLength(171);
+    const count = new Map<string, [number, number]>();
+    for (const e of eds) {
+      if (e.champion) count.set(e.champion, [(count.get(e.champion)?.[0] ?? 0) + 1, count.get(e.champion)?.[1] ?? 0]);
+      if (e.runnerUp) count.set(e.runnerUp, [count.get(e.runnerUp)?.[0] ?? 0, (count.get(e.runnerUp)?.[1] ?? 0) + 1]);
+    }
+    for (const t of SEED_TEAMS) {
+      expect(count.get(t.name) ?? [0, 0], t.name).toEqual([t.titles, t.runnersUp]);
+    }
+  });
+});

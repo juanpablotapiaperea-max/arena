@@ -36,7 +36,7 @@ export async function getHistoricalRanking(): Promise<RankingEntry[]> {
 }
 
 export async function getLegacyEditions(): Promise<LegacyEdition[]> {
-  if (DEMO_MODE) return [];
+  if (DEMO_MODE) return demoData().legacy;
   return rows<LegacyEdition>(db().from('legacy_editions').select('*').order('import_order'));
 }
 

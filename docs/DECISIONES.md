@@ -13,8 +13,12 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 
 ## Pendientes de confirmar
 
-- **Promedio de 5.47 goles.** Con los atributos actuales de los 54 equipos, la fórmula original sin cambios da **≈6.2 goles por partido** (≈5.9 en sede neutral). El 5.47 histórico salió de equipos con otros atributos. La prueba automática fija el valor real (5.9–6.5). Si se quiere volver a 5.47 basta con bajar `baseGoals` de 2.8 a ≈2.45 en la configuración del motor.
-- Archivo del historial (171 ediciones): se importa con `scripts/import-legacy.ts` en cuanto se tenga el export de la app anterior.
+- **Promedio de 5.47 goles.** Con los atributos actuales de los 54 equipos, la fórmula original sin cambios da **≈6.2 goles por partido** (≈5.9 en sede neutral). El export de la app anterior lo confirma: las OHL recientes de 54 equipos promediaron 6.20 (17,946 goles en 2,893 partidos), y el 5.47 sale de mezclar ligas antiguas con equipos más débiles (por ejemplo, 4.5 en OHL de 40 equipos). La prueba automática fija el valor real (5.9–6.5). Si se quiere volver a 5.47 basta con bajar `baseGoals` de 2.8 a ≈2.45.
+
+## Historial importado
+- 171 ediciones desde el export de la app anterior (`data/legacy/historial-base44.md`); 40 traen el top 3 de su tabla.
+- Los títulos y subcampeonatos por equipo cuadran exactamente con la sección 17 (prueba automática).
+- Las competiciones que ya no existen (LAB CUP, TECATE, FSLH, 32PLAYS, Especial 151, THEBIG10, Liga del siglo, etc.) solo quedan en el historial.
 
 ## Supuestos tomados
 

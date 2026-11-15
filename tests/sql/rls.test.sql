@@ -149,4 +149,9 @@ select t_assert((select goalie from teams where key = 'kings') < 90, 'portero le
 update players set injury_days = 0 where team_id = (select id from teams where key='kings');
 select t_assert((select abs(goalie - 92) <= 1 from teams where key = 'kings'), 'vuelve el titular');
 
+-- ═══ Historial importado ═══
+select t_assert((select count(*) from legacy_editions) = 171, '171 ediciones importadas');
+select t_assert((select count(*) from legacy_editions where champion_name is not null and champion_team_id is null) = 0, 'todos los campeones enlazados a un equipo');
+select t_assert((select count(*) from legacy_editions where runner_up_name is not null and runner_up_team_id is null) = 0, 'todos los subcampeones enlazados');
+
 select 'RLS OK' as resultado;
