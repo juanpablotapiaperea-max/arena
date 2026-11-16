@@ -8,6 +8,10 @@ import { POSITION_SHORT, type Player } from '@/lib/types';
 import { textOn } from '@/lib/theme';
 import { Crest } from '@/components/Crest';
 import { Badge, ErrorBox, RatingBar, SectionTitle, Spinner, Stat, money } from '@/components/ui';
+import { useQuery } from '@tanstack/react-query';
+import { DEMO_MODE, db } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { StadiumView, type StadiumData } from '@/components/Stadium';
 
 export function TeamDetailPage() {
   const { key } = useParams();
@@ -15,6 +19,13 @@ export function TeamDetailPage() {
   const team = teams.find((t) => t.key === key);
   const players = usePlayers(team?.id);
   const ranking = useHistoricalRanking();
+  const { profile } = useAuth();
+  const stadiumsOn = useQuery({ queryKey: ['setting', 'stadiums_enabled'], enabled: !DEMO_MODE, queryFn: async () => !!(await db().from('settings').select('value').eq('key', 'stadiums_enabled').maybeSingle()).data?.value });
+  const stadium = useQuery({
+    queryKey: ['stadium', team?.id],
+    enabled: !DEMO_MODE && !!team && (!!stadiumsOn.data || profile?.role === 'admin'),
+    queryFn: async () => (await db().from('stadiums').select('*').eq('team_id', team!.id).maybeSingle()).data as StadiumData | null,
+  });
 
   const lineup = useMemo(() => {
     if (!players.data) return null;
@@ -73,6 +84,13 @@ export function TeamDetailPage() {
         <Stat label="Puntos de ranking" value={Math.round(entry?.points ?? 0).toLocaleString('es-MX')} />
         <Stat label="Plantilla" value={players.data?.length ?? '—'} />
       </div>
+
+      {stadium.data && (
+        <section>
+          <SectionTitle right={!stadiumsOn.data ? <Badge>Vista previa (estadios apagados)</Badge> : undefined}>Estadio</SectionTitle>
+          <StadiumView s={stadium.data} team={team} />
+        </section>
+      )}
 
       {players.isLoading ? (
         <Spinner />

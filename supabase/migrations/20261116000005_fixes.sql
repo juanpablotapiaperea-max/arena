@@ -32,3 +32,18 @@ begin
   if not found then return 0; end if;
   return bonus;
 end $$;
+
+-- Tiempo real del draft y del mercado.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    begin
+      alter publication supabase_realtime add table draft_picks;
+    exception when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table transfers;
+    exception when duplicate_object then null;
+    end;
+  end if;
+end $$;

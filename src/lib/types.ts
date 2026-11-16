@@ -15,6 +15,7 @@ export interface Team {
   defense: number;
   goalie: number;
   play_style: string;
+  play_style_locked?: boolean;
   division: 1 | 2 | null;
   fan_base: number;
   initial_rank: number | null;

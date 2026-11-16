@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Pencil } from 'lucide-react';
 import { usePlayers, useTeams } from '@/lib/hooks';
 import { adminUpdatePlayer } from '@/lib/api';
+import { db } from '@/lib/supabase';
 import { POSITION_SHORT, type Player } from '@/lib/types';
 import { Crest } from '@/components/Crest';
 import { Button, ErrorBox, Input, Label, SectionTitle, Spinner, cn, money } from '@/components/ui';
@@ -49,6 +50,7 @@ export function TeamsAdmin() {
               </div>
             </div>
           )}
+          {selected && <TeamIdentity team={selected} />}
           {players.isLoading ? (
             <Spinner />
           ) : (
@@ -94,6 +96,50 @@ export function TeamsAdmin() {
         </div>
       </div>
       {editing && <PlayerEditor player={editing} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+/** Escudo y colores del equipo: el escudo se puede reemplazar por una imagen. */
+function TeamIdentity({ team }: { team: import('@/lib/types').Team }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<unknown>(null);
+  const save = async (patch: Record<string, unknown>) => {
+    setError(null);
+    const { error: err } = await db().from('teams').update(patch).eq('id', team.id);
+    if (err) setError(new Error(err.message));
+    else qc.invalidateQueries({ queryKey: ['teams'] });
+  };
+  const upload = async (file: File) => {
+    const img = await createImageBitmap(file);
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(size / img.width, size / img.height);
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    await save({ crest_url: canvas.toDataURL('image/png') });
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b border-line p-3 text-sm">
+      <label className="flex items-center gap-2">
+        Primario
+        <input type="color" value={team.primary_color} onChange={(e) => save({ primary_color: e.target.value })} className="h-9 w-12 rounded border border-line bg-transparent" />
+      </label>
+      <label className="flex items-center gap-2">
+        Secundario
+        <input type="color" value={team.secondary_color} onChange={(e) => save({ secondary_color: e.target.value })} className="h-9 w-12 rounded border border-line bg-transparent" />
+      </label>
+      <label className="flex items-center gap-2">
+        Escudo
+        <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} className="max-w-48 text-xs" />
+      </label>
+      {team.crest_url && (
+        <Button size="sm" variant="ghost" onClick={() => save({ crest_url: null })}>
+          Volver al escudo generado
+        </Button>
+      )}
+      {error ? <ErrorBox error={error} /> : null}
     </div>
   );
 }

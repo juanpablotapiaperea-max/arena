@@ -19,6 +19,14 @@ import { LogAdmin } from '@/pages/admin/LogAdmin';
 import { SettingsAdmin } from '@/pages/admin/SettingsAdmin';
 import { Planner } from '@/pages/admin/Planner';
 import { CompetitionsAdmin } from '@/pages/admin/CompetitionsAdmin';
+import { MarketAdmin } from '@/pages/admin/MarketAdmin';
+import { SeasonClose } from '@/pages/admin/SeasonClose';
+import { EventsAdmin } from '@/pages/admin/EventsAdmin';
+import { EconomyAdmin } from '@/pages/admin/EconomyAdmin';
+import { PressAdmin } from '@/pages/admin/PressAdmin';
+import { RankingAdmin } from '@/pages/admin/RankingAdmin';
+import { MarketPage } from '@/pages/spectator/Market';
+import { MyClubPage } from '@/pages/spectator/MyClub';
 import { TodayPage } from '@/pages/spectator/Today';
 import { LiveIndexPage, LiveMatchPage } from '@/pages/spectator/Live';
 import { CompetitionsPage, EditionPage } from '@/pages/spectator/Competitions';
@@ -40,14 +48,7 @@ function RequireAdmin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-const ADMIN_PLACEHOLDERS: Record<string, { phase: number; description: string }> = {
-  '/admin/eventos': { phase: 3, description: 'Revisar derbis detectados, forzar o vetar, marcar clásicos y elegir eventos del momento.' },
-  '/admin/mercado': { phase: 4, description: 'Abrir ventanas, aprobar, vetar o forzar fichajes y controlar el draft.' },
-  '/admin/economia': { phase: 3, description: 'Márgenes, topes, bono diario, tope salarial y consulta de apuestas.' },
-  '/admin/prensa': { phase: 4, description: 'Cola de aprobación, nivel de tono, tope de gasto de la IA y noticias manuales.' },
-  '/admin/ranking': { phase: 2, description: 'Pesos, puntos base y ajustes manuales del ranking.' },
-  '/admin/cierre': { phase: 2, description: 'Asistente de cierre: ranking, ascensos y descensos, progresión, retiros, draft y mercado.' },
-};
+const ADMIN_PLACEHOLDERS: Record<string, { phase: number; description: string }> = {};
 
 export default function App() {
   return (
@@ -70,6 +71,12 @@ export default function App() {
         <Route path="configuracion" element={<SettingsAdmin />} />
         <Route path="planificador" element={<Planner />} />
         <Route path="competiciones" element={<CompetitionsAdmin />} />
+        <Route path="eventos" element={<EventsAdmin />} />
+        <Route path="mercado" element={<MarketAdmin />} />
+        <Route path="economia" element={<EconomyAdmin />} />
+        <Route path="prensa" element={<PressAdmin />} />
+        <Route path="ranking" element={<RankingAdmin />} />
+        <Route path="cierre" element={<SeasonClose />} />
         {Object.entries(ADMIN_PLACEHOLDERS).map(([path, p]) => (
           <Route
             key={path}
@@ -95,8 +102,8 @@ export default function App() {
         <Route path="estadisticas" element={<StatsPage />} />
         <Route path="apuestas" element={<BetsPage />} />
         <Route path="noticias" element={<NewsPage />} />
-        <Route path="mercado" element={<Placeholder title="Mercado y draft" phase={4} description="Fichajes, rumores y el evento del draft." />} />
-        <Route path="mi-club" element={<Placeholder title="Mi club" phase={4} description="Finanzas, plantilla, estilo de juego, fichajes sugeridos, draft y apuestas del club." />} />
+        <Route path="mercado" element={<MarketPage />} />
+        <Route path="mi-club" element={<MyClubPage />} />
         <Route path="equipos" element={<TeamsPage />} />
         <Route path="equipos/:key" element={<TeamDetailPage />} />
         <Route path="historia" element={<HistoryPage />} />
