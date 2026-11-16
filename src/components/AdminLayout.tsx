@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
   Activity,
+  Eye,
   BookLock,
   CalendarRange,
   Coins,
@@ -62,6 +63,14 @@ export function AdminLayout() {
           {m.label}
         </NavLink>
       ))}
+      <Link
+        to="/"
+        onClick={() => setOpen(false)}
+        className="focus-ring mt-2 flex min-h-10 items-center gap-2.5 rounded-lg border border-line px-3 text-sm font-semibold text-secondary hover:bg-surface-2"
+      >
+        <Eye size={17} aria-hidden />
+        Ver como espectador
+      </Link>
     </nav>
   );
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -41,6 +41,14 @@ export function SpectatorLayout() {
 
   return (
     <div className="min-h-screen pb-24 md:pb-8">
+      {profile?.role === 'admin' && (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-secondary px-4 py-2 text-center text-sm font-semibold text-bg">
+          <span>Estás viendo la app como espectador</span>
+          <Link to="/admin" className="focus-ring rounded underline underline-offset-2">
+            Volver al panel
+          </Link>
+        </div>
+      )}
       <header className="sticky top-0 z-30 border-b border-line/70 bg-bg/85 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           {star ? <Crest team={star} size={28} /> : null}
