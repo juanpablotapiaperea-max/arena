@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X } from 'lucide-react';
+import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X } from 'lucide-react';
+import { Ticker } from './Ticker';
+import { AccessibilityPanel } from './AccessibilityPanel';
 import { useAuth } from '@/lib/auth';
 import { useTeams } from '@/lib/hooks';
 import { applyTeamTheme } from '@/lib/theme';
@@ -31,6 +33,7 @@ export function SpectatorLayout() {
   const { byId } = useTeams();
   const star = profile?.star_team_id ? byId.get(profile.star_team_id) ?? null : null;
   const [moreOpen, setMoreOpen] = useState(false);
+  const [a11yOpen, setA11yOpen] = useState(false);
   const location = useLocation();
   const reduce = useReducedMotion();
 
@@ -40,7 +43,10 @@ export function SpectatorLayout() {
   const tabs = profile?.role === 'owner' ? [...MORE_TABS, { to: '/mi-club', label: 'Mi club', icon: Shield }] : MORE_TABS;
 
   return (
-    <div className="min-h-screen pb-24 md:pb-8">
+    <div className="min-h-screen pb-24 xl:pb-8">
+      <a href="#contenido" className="focus-ring sr-only z-50 rounded-lg bg-primary px-3 py-2 text-bg focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
+        Saltar al contenido
+      </a>
       {profile?.role === 'admin' && (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-secondary px-4 py-2 text-center text-sm font-semibold text-bg">
           <span>Estás viendo la app como espectador</span>
@@ -53,7 +59,7 @@ export function SpectatorLayout() {
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           {star ? <Crest team={star} size={28} /> : null}
           <Brand small />
-          <nav className="ml-6 hidden gap-1 md:flex" aria-label="Principal">
+          <nav className="ml-6 hidden gap-1 xl:flex" aria-label="Principal">
             {[...MAIN_TABS, ...tabs].map((t) => (
               <NavLink
                 key={t.to}
@@ -71,12 +77,35 @@ export function SpectatorLayout() {
             <span className="flex items-center gap-1 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular" title="Créditos">
               <Coins size={14} className="text-secondary" aria-hidden /> {profile?.credits.toLocaleString('es-MX')}
             </span>
+            <button onClick={() => setA11yOpen(true)} className="focus-ring rounded-lg p-2 text-muted hover:text-fg" aria-label="Accesibilidad">
+              <Accessibility size={18} />
+            </button>
             <button onClick={() => signOut()} className="focus-ring rounded-lg p-2 text-muted hover:text-fg" aria-label="Salir">
               <LogOut size={18} />
             </button>
           </div>
         </div>
+        <Ticker />
       </header>
+
+      {a11yOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onClick={() => setA11yOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Accesibilidad"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-3xl"
+          >
+            <div className="mb-2 flex justify-end">
+              <button onClick={() => setA11yOpen(false)} className="focus-ring rounded-lg p-2" aria-label="Cerrar">
+                <X size={18} />
+              </button>
+            </div>
+            <AccessibilityPanel compact />
+          </div>
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         <motion.main
@@ -86,6 +115,8 @@ export function SpectatorLayout() {
           exit={reduce ? undefined : { opacity: 0 }}
           transition={{ duration: 0.18 }}
           className="mx-auto max-w-6xl px-4 py-5"
+          id="contenido"
+          tabIndex={-1}
         >
           <Outlet />
         </motion.main>
@@ -94,7 +125,7 @@ export function SpectatorLayout() {
       {/* Navegación inferior en celular */}
       <nav
         aria-label="Principal"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur xl:hidden"
       >
         <div className="grid grid-cols-5">
           {MAIN_TABS.map((t) => (
@@ -123,7 +154,7 @@ export function SpectatorLayout() {
       <AnimatePresence>
         {moreOpen && (
           <motion.div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            className="fixed inset-0 z-40 bg-black/60 xl:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

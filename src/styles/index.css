@@ -61,6 +61,81 @@ body {
   animation: live-pulse 1.4s ease-in-out infinite;
 }
 
+/* ─── Modos de accesibilidad ─── */
+:root[data-contrast='high'] {
+  --bg: 0 0 0;
+  --surface: 10 10 12;
+  --surface-2: 28 28 34;
+  --line: 160 168 184;
+  --fg: 255 255 255;
+  --muted: 214 220 230;
+  --live: 255 92 92;
+  --win: 74 222 128;
+  --loss: 255 107 107;
+}
+:root[data-contrast='high'] .card {
+  border-width: 2px;
+}
+:root[data-colors='safe'] {
+  --win: 59 130 246;
+  --loss: 249 115 22;
+  --live: 236 72 153;
+}
+:root[data-font='readable'] body,
+:root[data-font='readable'] .font-sans,
+:root[data-font='readable'] .font-display {
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif !important;
+  letter-spacing: 0.02em;
+}
+:root[data-links='underline'] a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+:root[data-contrast='high'] .focus-ring:focus-visible {
+  outline: 3px solid rgb(255 255 0);
+  outline-offset: 2px;
+}
+
+/* Marca de resultado que no depende solo del color */
+.result-pill[data-r='W']::before { content: '▲'; }
+.result-pill[data-r='L']::before { content: '▼'; }
+.result-pill[data-r='D']::before { content: '■'; }
+.result-pill::before { font-size: 0.6em; margin-right: 1px; }
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.ticker-track {
+  animation: ticker 60s linear infinite;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes goal-flash {
+  0% { opacity: 0; transform: scale(0.6); }
+  15% { opacity: 1; transform: scale(1.08); }
+  30% { transform: scale(1); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.goal-flash {
+  animation: goal-flash 2.6s ease-out forwards;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -12,8 +12,12 @@
     "seed": "tsx scripts/generate-seed.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.119.0",
     "@tanstack/react-query": "^5.107.1",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "framer-motion": "^11.18.2",
     "lucide-react": "^1.73.0",
@@ -25,6 +29,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",

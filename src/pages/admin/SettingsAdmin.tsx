@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { APP_NAME } from '@shared/config';
 import { adminSetSetting, getSetting } from '@/lib/api';
 import { Button, Card, ErrorBox, Input, Label, SectionTitle } from '@/components/ui';
+import { AccessibilityPanel } from '@/components/AccessibilityPanel';
 
 /** Configuración: interruptor de estadios, nombre de la app y parámetros globales. */
 export function SettingsAdmin() {
@@ -57,6 +58,7 @@ export function SettingsAdmin() {
           El nombre provisional vive en la constante APP_NAME (shared/config.ts); este valor lo sobrescribe en la interfaz.
         </p>
       </Card>
+      <AccessibilityPanel />
     </div>
   );
 }

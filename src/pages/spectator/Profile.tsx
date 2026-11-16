@@ -5,6 +5,7 @@ import { useTeams } from '@/lib/hooks';
 import { updateFavorites } from '@/lib/api';
 import { Crest } from '@/components/Crest';
 import { Button, ErrorBox, SectionTitle, Spinner, cn } from '@/components/ui';
+import { AccessibilityPanel } from '@/components/AccessibilityPanel';
 
 /** Hasta 3 equipos principales y 1 estelar que tiñe toda la interfaz. */
 export function ProfilePage() {
@@ -91,6 +92,8 @@ export function ProfilePage() {
             })}
         </ul>
       </section>
+
+      <AccessibilityPanel />
 
       {error ? <ErrorBox error={error} /> : null}
       <div className="sticky bottom-20 flex justify-end md:bottom-4">
