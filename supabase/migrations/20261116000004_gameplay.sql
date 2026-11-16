@@ -286,7 +286,7 @@ begin
     form = least(100, greatest(0, form + (floor(random() * 13) - 6)::int + case when form < 40 then 2 when form > 70 then -2 else 0 end)),
     morale = morale + case when morale > 55 then -1 when morale < 45 then 1 else 0 end
   where not retired;
-  update teams set play_style_locked = true;
+  update teams set play_style_locked = true where true;
   perform set_config('arena.skip_ratings', 'off', true);
   perform public.recompute_all_ratings();
 end $$;
@@ -296,7 +296,7 @@ create or replace function public.end_competition_day() returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform set_config('arena.skip_log', 'on', true);
-  update teams set play_style_locked = false;
+  update teams set play_style_locked = false where true;
 end $$;
 revoke all on function public.end_competition_day() from public, anon, authenticated;
 
