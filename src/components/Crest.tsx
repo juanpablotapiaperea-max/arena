@@ -9,13 +9,18 @@ type CrestTeam = Pick<Team, 'short_name' | 'primary_color' | 'secondary_color' |
  */
 export function Crest({ team, size = 40, className = '' }: { team: CrestTeam; size?: number; className?: string }) {
   if (team.crest_url) {
+    // Los logos oficiales viven en /crests; en tamaños chicos se usa la versión ligera.
+    const src = size <= 72 && team.crest_url.startsWith('/crests/') ? team.crest_url.replace('/crests/', '/crests/sm/') : team.crest_url;
     return (
       <img
-        src={team.crest_url}
+        src={src}
         alt={`Escudo de ${team.name}`}
         width={size}
         height={size}
-        className={`shrink-0 object-contain ${className}`}
+        loading="lazy"
+        decoding="async"
+        className={`shrink-0 rounded-[22%] object-cover shadow-sm ring-1 ring-black/10 ${className}`}
+        style={{ width: size, height: size }}
       />
     );
   }
