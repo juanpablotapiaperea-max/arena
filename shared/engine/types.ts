@@ -87,6 +87,13 @@ export interface MatchContext {
   overtimeEnabled: boolean;
   /** Generar línea de tiempo jugada a jugada (solo eventos principales). */
   withTimeline: boolean;
+  /**
+   * Partido de vuelta: goles de la ida del local y del visitante de ESTE partido.
+   * Si el global queda empatado (y el gol de visitante no lo decide) hay tiempo extra.
+   */
+  aggregate?: { home: number; away: number; awayGoalsRule: boolean };
+  /** Bono de local del estadio (0.02 = +2 %), solo con estadios activos. */
+  homeBonus?: number;
 }
 
 export interface GoalEvent {

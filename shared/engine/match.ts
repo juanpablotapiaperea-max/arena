@@ -68,6 +68,7 @@ export function simulateMatch(home: TeamInput, away: TeamInput, ctx: MatchContex
   const hr = teamRatings(home.lineup, s, home.gamesToday ?? 0);
   const ar = teamRatings(away.lineup, s, away.gamesToday ?? 0);
   const expected = expectedGoals(hr, ar, home.style, away.style, ctx.neutralVenue, s);
+  if (ctx.homeBonus && !ctx.neutralVenue) expected.home = clamp(expected.home * (1 + ctx.homeBonus), s.minLambda, s.maxLambda);
 
   // Sesgos secretos: solo afectan al resultado real, nunca a "expected".
   const hBias = clamp(home.bias ?? 1, 0.7, 1.3);
@@ -83,7 +84,13 @@ export function simulateMatch(home: TeamInput, away: TeamInput, ctx: MatchContex
   // Tiempo extra: gana con probabilidad proporcional a su fuerza media.
   let overtime = false;
   let otWinner: Side | null = null;
-  if (hGoals === aGoals && ctx.overtimeEnabled) {
+  let needsOvertime = hGoals === aGoals && ctx.overtimeEnabled;
+  if (ctx.aggregate) {
+    needsOvertime = hGoals + ctx.aggregate.home === aGoals + ctx.aggregate.away;
+    // Gol de visitante: el visitante de hoy anotó aGoals fuera; el local anotó aggregate.home fuera en la ida.
+    if (needsOvertime && ctx.aggregate.awayGoalsRule && aGoals !== ctx.aggregate.home) needsOvertime = false;
+  }
+  if (needsOvertime) {
     overtime = true;
     const ph = power(hr);
     const pa = power(ar);
