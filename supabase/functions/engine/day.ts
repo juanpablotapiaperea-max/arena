@@ -121,6 +121,23 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
     if (normal > 0) burstUnits.push({ block: b, unit, count: normal });
   }
 
+  // Cada día lleva al menos un evento en vivo cuando hay material: si ningún
+  // partido llegó al umbral, se transmiten los mejores derbis del día (hasta 3).
+  if (!lives.length && regular.length) {
+    const best = regular
+      .map((m) => ({ m, d: derbies.get(m.id)! }))
+      .filter((x) => x.d)
+      .sort((a, b) => b.d.score - a.d.score)
+      .slice(0, Math.min(3, Math.max(1, Math.floor(regular.length / 60))));
+    for (const { m, d } of best) {
+      const b = blocks.find((x) => x.edition_id === m.edition_id && x.unit_index === m.unit_index)!;
+      const e = editions.get(b.edition_id)!;
+      lives.push({ block: b, unit: e.state.units.find((u) => u.index === b.unit_index)!, matchId: m.id, slot: -1, score: d.score, name: d.name, final: false });
+      const bu = burstUnits.find((x) => x.block.id === b.id);
+      if (bu) bu.count--;
+    }
+  }
+
   // Máximo de eventos en vivo: los de menor interés pasan a ráfagas.
   lives.sort((a, b) => b.score - a.score);
   const kept = lives.slice(0, cal.maxLiveEventsPerDay);
@@ -141,7 +158,11 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // Tamaño de ráfaga: de 3 a 6 partidos; más si no cabe en la ventana de 6 horas.
   const totalNormal = burstUnits.reduce((s, b) => s + b.count, 0);
   const slots = Math.floor(windowMin / cal.burstEveryMinutes);
-  const size = Math.max(cal.burstMin, Math.min(cal.burstMax, Math.ceil(totalNormal / Math.max(1, slots))), Math.ceil(totalNormal / Math.max(1, slots)));
+  // El menor tamaño de ráfaga (desde 3) con el que todo cabe en la ventana.
+  let size = cal.burstMin;
+  const burstsFor = (n: number) => burstUnits.reduce((acc, b) => acc + Math.ceil(Math.max(0, b.count) / n), 0);
+  while (size < 50 && burstsFor(size) > slots - 2) size++;
+  void totalNormal;
 
   // Se recorre el plan en orden: las ráfagas avanzan cada 5 minutos y los
   // eventos en vivo van uno tras otro; una ronda en vivo arranca cuando ya

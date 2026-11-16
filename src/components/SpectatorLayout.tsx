@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X } from 'lucide-react';
 import { Ticker } from './Ticker';
+import { NotificationCenter } from './Notifications';
 import { AccessibilityPanel } from './AccessibilityPanel';
 import { useAuth } from '@/lib/auth';
 import { useTeams } from '@/lib/hooks';
@@ -77,6 +78,7 @@ export function SpectatorLayout() {
             <span className="flex items-center gap-1 rounded-lg bg-surface-2 px-2 py-1 text-xs font-semibold tabular" title="Créditos">
               <Coins size={14} className="text-secondary" aria-hidden /> {profile?.credits.toLocaleString('es-MX')}
             </span>
+            <NotificationCenter />
             <button onClick={() => setA11yOpen(true)} className="focus-ring rounded-lg p-2 text-muted hover:text-fg" aria-label="Accesibilidad">
               <Accessibility size={18} />
             </button>

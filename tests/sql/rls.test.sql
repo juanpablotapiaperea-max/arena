@@ -154,4 +154,21 @@ select t_assert((select count(*) from legacy_editions) = 171, '171 ediciones imp
 select t_assert((select count(*) from legacy_editions where champion_name is not null and champion_team_id is null) = 0, 'todos los campeones enlazados a un equipo');
 select t_assert((select count(*) from legacy_editions where runner_up_name is not null and runner_up_team_id is null) = 0, 'todos los subcampeones enlazados');
 
+-- ═══ Ligas privadas ═══
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+select set_config('request.jwt.claims', '{"aal":"aal1"}', false);
+select t_assert((public.create_bet_league('Amigos') ->> 'code') is not null, 'crea liga privada');
+select t_assert((select count(*) from bet_leagues) = 1, 've su liga');
+select t_assert((select count(*) from public.my_bet_leagues()) = 1, 'my_bet_leagues');
+reset role;
+select set_config('t.code', (select join_code from bet_leagues limit 1), false);
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+select t_assert((select count(*) from bet_leagues) = 0, 'otro usuario no ve la liga ajena');
+select public.join_bet_league(current_setting('t.code')) is not null;
+select t_assert((select count(*) from bet_leagues) = 1, 'al unirse ya la ve');
+reset role;
+select t_assert((select count(*) from bet_league_members) = 2, 'se unió con el código');
+
 select 'RLS OK' as resultado;

@@ -1,6 +1,9 @@
 // Competiciones: tablas con movimiento, cuadro de playoffs, resultados por
 // jornada, probabilidades y líderes de cada edición.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import confetti from 'canvas-confetti';
+import { motion, useReducedMotion } from 'framer-motion';
+import { useA11y } from '@/lib/a11y';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ChevronLeft, ChevronRight, Trophy } from 'lucide-react';
@@ -96,11 +99,7 @@ export function EditionPage() {
         </div>
         <h1 className="font-display text-4xl font-extrabold uppercase leading-none sm:text-5xl">{e.name.split(' · ')[0]}</h1>
         <div className="mt-1 text-sm text-muted">{e.name.split(' · ')[1]}</div>
-        {e.champion_team_id && (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-secondary/20 px-3 py-1.5 font-semibold">
-            <Trophy size={16} className="text-secondary" aria-hidden /> Campeón: <TeamName team={byId.get(e.champion_team_id)} size={22} />
-          </div>
-        )}
+        {e.champion_team_id && <ChampionBanner team={byId.get(e.champion_team_id)} editionId={e.id} runnerUp={e.runner_up_team_id ? byId.get(e.runner_up_team_id) : undefined} />}
       </header>
 
       <div className="-mx-4 flex gap-1 overflow-x-auto px-4" role="tablist" aria-label="Secciones">
@@ -357,5 +356,46 @@ function Leaders({ editionId, teams }: { editionId: string; teams: Map<string, T
         </section>
       ))}
     </div>
+  );
+}
+
+/** Festejo del campeón: confeti con los colores del equipo la primera vez que se ve. */
+function ChampionBanner({ team, runnerUp, editionId }: { team?: Team; runnerUp?: Team; editionId: string }) {
+  const reduce = useReducedMotion();
+  const { prefs } = useA11y();
+  useEffect(() => {
+    if (!team || reduce || prefs.reduceMotion) return;
+    const key = `arena:festejo:${editionId}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      /* sin almacenamiento: festeja igual */
+    }
+    const colors = [team.primary_color, team.secondary_color, '#ffd700'];
+    confetti({ particleCount: 120, spread: 80, origin: { y: 0.25 }, colors });
+    const t = setTimeout(() => {
+      confetti({ particleCount: 60, angle: 60, spread: 60, origin: { x: 0, y: 0.5 }, colors });
+      confetti({ particleCount: 60, angle: 120, spread: 60, origin: { x: 1, y: 0.5 }, colors });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [team?.id, editionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!team) return null;
+  return (
+    <motion.div
+      initial={reduce ? false : { scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+      className="mt-3 flex flex-wrap items-center gap-3"
+    >
+      <div className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-semibold" style={{ background: `${team.primary_color}40`, boxShadow: `0 0 0 1px ${team.secondary_color}80` }}>
+        <Trophy size={18} className="text-secondary" aria-hidden /> Campeón: <TeamName team={team} size={24} />
+      </div>
+      {runnerUp && (
+        <div className="inline-flex items-center gap-2 text-sm text-muted">
+          Subcampeón: <TeamName team={runnerUp} size={18} />
+        </div>
+      )}
+    </motion.div>
   );
 }

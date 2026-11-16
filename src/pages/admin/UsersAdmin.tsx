@@ -10,7 +10,7 @@ const ROLE_LABEL: Record<UserRole, string> = { admin: 'Administrador', owner: 'D
 /** Usuarios: crear códigos, asignar roles y clubes, silenciar en el chat. */
 export function UsersAdmin() {
   const qc = useQueryClient();
-  const { teams, byId } = useTeams();
+  const { teams } = useTeams();
   const list = useQuery({ queryKey: ['admin', 'profiles'], queryFn: adminListProfiles });
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('spectator');
@@ -121,7 +121,25 @@ export function UsersAdmin() {
                     )}
                   </td>
                   <td className="px-3 py-2">{ROLE_LABEL[p.role]}</td>
-                  <td className="px-3 py-2">{p.club_team_id ? byId.get(p.club_team_id)?.name : '—'}</td>
+                  <td className="px-3 py-2">
+                    {p.role === 'admin' ? (
+                      '—'
+                    ) : (
+                      <select
+                        aria-label={`Club de ${p.display_name}`}
+                        className="focus-ring max-w-40 rounded-lg border border-line bg-surface-2 px-2 py-1 text-sm"
+                        value={p.club_team_id ?? ''}
+                        onChange={(e) => act({ action: 'set_role', userId: p.id, role: e.target.value ? 'owner' : 'spectator', clubTeamId: e.target.value || null })}
+                      >
+                        <option value="">Espectador (sin club)</option>
+                        {teams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            Dueño de {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right tabular">{p.credits.toLocaleString('es-MX')}</td>
                   <td className="px-3 py-2 text-right">
                     {p.role !== 'admin' && (

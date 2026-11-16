@@ -6,11 +6,16 @@ import { updateFavorites } from '@/lib/api';
 import { Crest } from '@/components/Crest';
 import { Button, ErrorBox, SectionTitle, Spinner, cn } from '@/components/ui';
 import { AccessibilityPanel } from '@/components/AccessibilityPanel';
+import { Achievements } from '@/components/Leagues';
+import { useQuery } from '@tanstack/react-query';
+import { getMyBets } from '@/lib/engine';
+import { DEMO_MODE } from '@/lib/supabase';
 
 /** Hasta 3 equipos principales y 1 estelar que tiñe toda la interfaz. */
 export function ProfilePage() {
   const { profile, setLocalProfile } = useAuth();
   const { teams, isLoading } = useTeams();
+  const bets = useQuery({ queryKey: ['my-bets', profile?.id], enabled: !!profile && !DEMO_MODE, queryFn: () => getMyBets(profile!.id) });
   const [favorites, setFavorites] = useState<string[]>(profile?.favorite_team_ids ?? []);
   const [star, setStar] = useState<string | null>(profile?.star_team_id ?? null);
   const [saving, setSaving] = useState(false);
@@ -92,6 +97,8 @@ export function ProfilePage() {
             })}
         </ul>
       </section>
+
+      {!DEMO_MODE && <Achievements bets={bets.data ?? []} />}
 
       <AccessibilityPanel />
 

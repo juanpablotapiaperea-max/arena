@@ -41,4 +41,15 @@ PGHOST=/tmp PGPORT=5499 PGUSER=postgres scripts/test-db.sh
 4. Crear el administrador: `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/create-admin.ts correo "Nombre"`.
 5. Importar el historial: `npx tsx scripts/import-legacy.ts export.md` y cargar `supabase/legacy.sql`.
 
+## Funciones de servidor
+
+- `engine`: temporada, planificador, días de competencia (lo llama `pg_cron` cada minuto), apuestas, mercado, draft, cierre y prensa.
+- `admin-users`: alta de usuarios con código, cambio de rol o club, silenciar en el chat.
+
+Secreto opcional: `ANTHROPIC_API_KEY` para que la prensa la escriba Claude (sin él se usan plantillas).
+
+## Producción
+
+El frontend se publica en Vercel (`vercel deploy --prod`). Las decisiones y supuestos están en `docs/DECISIONES.md` y la guía para el dueño en `docs/INSTALACION.md`.
+
 El nombre de la app es provisional y vive en `shared/config.ts` (`APP_NAME`).

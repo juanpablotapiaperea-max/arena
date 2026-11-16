@@ -64,3 +64,34 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Tope diario de gasto de IA: 1 USD (a confirmar).
 - Probabilidades: 10 000 simulaciones; el servidor las reparte en varias pasadas para no exceder el límite de CPU de las Edge Functions.
 - CENTENARIO: el contador incluye las 171 ediciones importadas, así que el primero sale al finalizar la edición 200.
+
+## Fases 2 a 4: calendario, días de competencia, mercado y pulido
+
+### Planificador y días de competencia
+- El generador reparte las unidades (jornadas y rondas) de todas las ediciones activas en días, respetando el máximo de partidos por día; el admin después arrastra bloques entre días, une o borra días y agrega unidades sueltas. Los avisos (día demasiado cargado, rondas fuera de orden) se muestran sin bloquear.
+- **Ráfagas:** el tamaño de cada ráfaga se calcula para que todos los partidos del día quepan en la ventana horaria. La última ráfaga de un bloque toma todo lo que quede.
+- **Eventos en vivo:** se detectan clásicos con una puntuación de 0 a 100 (rivalidad marcada, cercanía en ranking, finales). Si ninguno califica, salen en vivo los mejores clásicos del día, **mínimo 3** y máximo 24 por día. Solo hay un vivo a la vez; los vivos de una ronda empiezan después de las ráfagas de las que dependen, las finales van al final y un resumen cierra el día.
+- Prueba de carga real (OHL + Primera + Segunda, 359 partidos): el día dura ≈357 min con 3 vivos y cada tick tarda ≈1.8 s (p50).
+- El marcador de un vivo nunca se adelanta: la línea de tiempo solo se lee con `live_timeline`, que entrega los eventos ya ocurridos según el reloj del servidor.
+
+### Apuestas
+- Cuotas exactas con Poisson y margen de la casa; mercados de largo plazo (campeón, playoffs, descenso) con Monte Carlo (presupuesto de 300 mil simulaciones por cálculo).
+- Los sesgos secretos del admin nunca entran en las cuotas ni en los goles esperados.
+- El bono diario y el cobro de apuestas pasan por funciones de servidor que activan la bandera `arena.trusted`; sin ella, un usuario no puede modificar sus propios créditos.
+- Ligas privadas entre amigos con código de invitación de 6 caracteres; la tabla ordena por ganancia neta. Logros calculados a partir del historial de boletas.
+
+### Mercado, draft y cierre
+- Valor de jugador por rating, edad, potencial y contrato; el vendedor pide más y el comprador ofrece menos, con hasta 3 rondas de negociación.
+- Los intercambios mantienen siempre la plantilla en 2 porteros, 6 defensas y 12 delanteros. Las dos mitades de un intercambio se guardan juntas o ninguna; al cerrar la ventana y al terminar el draft se recortan o completan las plantillas.
+- Draft por orden inverso del ranking; el dueño elige su turno o el sistema elige por él al vencer el tiempo.
+- El cierre de temporada muestra una vista previa (ascensos, descensos, puntos de ranking, retiros) antes de aplicarse.
+
+### Prensa
+- Las notas se escriben con Claude (modelo `claude-opus-5-5`) si existe el secreto `ANTHROPIC_API_KEY` en las funciones de Supabase. **Hoy no está configurado**, así que se usan plantillas en español; al agregar la clave cambia solo, sin tocar código.
+- Las jornadas que tuvieron vivos no generan una nota de jornada aparte (ya tienen su crónica).
+
+### Estadios
+- Apagados por defecto (`stadiums_enabled = false`). El admin los ve y edita siempre; los espectadores solo cuando se encienden. La ventaja de local extra del estadio es pequeña y editable.
+
+### Accesibilidad
+- Tamaño de texto, alto contraste, movimiento reducido, fuente de alta legibilidad (Atkinson Hyperlegible), paleta segura para daltonismo, enlaces subrayados, anuncios para lector de pantalla, sonidos y vibración. Cada persona elige en su perfil o con el botón ♿; respeta también las preferencias del sistema.

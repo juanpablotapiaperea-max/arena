@@ -11,6 +11,7 @@ import { db } from '@/lib/supabase';
 import { engine, getBettorBoard, getCurrentDay, getDayItems, getEditions, getMatchesByIds, getMyBets, type Bet, type Match, type Offer } from '@/lib/engine';
 import { Badge, Button, ErrorBox, Input, SectionTitle, Spinner, cn } from '@/components/ui';
 import { Countdown, EmptyState, TeamName, fmtTime } from '@/components/game';
+import { PrivateLeagues } from '@/components/Leagues';
 
 const MARKET_TITLE: Record<string, string> = {
   winner: 'Ganador (incluye tiempo extra)',
@@ -57,7 +58,12 @@ export function BetsPage() {
       {tab === 'partidos' && <MatchMarkets slip={slip} toggle={toggle} />}
       {tab === 'futuros' && <FutureMarkets slip={slip} toggle={toggle} />}
       {tab === 'boletas' && <MyTickets />}
-      {tab === 'ranking' && <Leaderboard />}
+      {tab === 'ranking' && (
+        <div className="space-y-4">
+          <Leaderboard />
+          <PrivateLeagues />
+        </div>
+      )}
       <Slip slip={slip} setSlip={setSlip} />
     </div>
   );
