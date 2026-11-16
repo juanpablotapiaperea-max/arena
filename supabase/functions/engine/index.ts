@@ -7,6 +7,9 @@ import { cancelItem, closeDay, dayStatus, forceItem, pauseDay, resumeDay, shiftI
 import { longTermOdds, oddsForMatch, placeBet } from './bets.ts';
 import { simulateUnitNow, snapshotProbabilities, editionMatches } from './run.ts';
 import type { EditionRow } from './types.ts';
+import { autoCloseWindow, closeWindow, forceTransfer, marketStatus, openWindow, vetoTransfer } from './market.ts';
+import { advanceDraft, draftState, ownerPick, prepareDraft, startDraft } from './draft.ts';
+import { closePreview, closeSeason } from './close.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -39,8 +42,17 @@ const ADMIN = new Set([
   'unit.simulateNow',
   'edition.probabilities',
   'tick',
+  'market.status',
+  'market.open',
+  'market.close',
+  'transfer.veto',
+  'transfer.force',
+  'draft.prepare',
+  'draft.start',
+  'season.closePreview',
+  'season.close',
 ]);
-const USER = new Set(['odds.match', 'odds.edition', 'bet.place']);
+const USER = new Set(['odds.match', 'odds.edition', 'bet.place', 'draft.state', 'draft.advance', 'draft.pick']);
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
@@ -54,7 +66,10 @@ Deno.serve(async (req) => {
     if (cronSecret) {
       const row = await q<{ value: string } | null>(db.from('private_config').select('value').eq('key', 'cron_secret').maybeSingle());
       if (!row || row.value !== cronSecret) return json({ error: 'No autorizado' }, 401);
-      return json(await tick(db));
+      const out = await tick(db);
+      await autoCloseWindow(db).catch(() => null);
+      await advanceDraft(db).catch(() => null);
+      return json(out);
     }
 
     const auth = req.headers.get('Authorization');
@@ -140,6 +155,33 @@ Deno.serve(async (req) => {
         return json(await oddsForMatch(db, body.matchId));
       case 'odds.edition':
         return json(await longTermOdds(db, body.editionId));
+      case 'market.status':
+        return json(await marketStatus(db));
+      case 'market.open':
+        return json(await openWindow(db, String(body.label ?? 'Ventana de mercado'), Number(body.minutes ?? 30)));
+      case 'market.close':
+        return json(await closeWindow(db));
+      case 'transfer.veto':
+        await vetoTransfer(db, body.transferId);
+        return json({ ok: true });
+      case 'transfer.force':
+        await forceTransfer(db, body.playerId, body.toTeamId, Number(body.fee ?? 0));
+        return json({ ok: true });
+      case 'draft.prepare':
+        return json(await prepareDraft(db));
+      case 'draft.start':
+        return json(await startDraft(db));
+      case 'draft.state':
+        return json(await draftState(db));
+      case 'draft.advance':
+        await advanceDraft(db, 3);
+        return json(await draftState(db));
+      case 'draft.pick':
+        return json(await ownerPick(db, u.user.id, body.playerId));
+      case 'season.closePreview':
+        return json(await closePreview(db));
+      case 'season.close':
+        return json(await closeSeason(db, body.moves));
       case 'bet.place':
         return json(await placeBet(db, u.user.id, body.offerIds ?? [], Number(body.stake), body.source === 'club' ? 'club' : 'credits'));
     }
