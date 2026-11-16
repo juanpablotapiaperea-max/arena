@@ -52,6 +52,11 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Tablas añadidas a las 25 de la sección 16: `team_private`, `edition_teams`, `match_secrets`, `odds_offers`, `bet_leagues`, `bet_league_members`, `achievements`, `notifications`, `owner_wishlist`, `classics`, `admin_ranking_adjustments`, `ai_usage`.
 - Los atributos del equipo se recalculan con un trigger de base de datos cada vez que cambia un jugador.
 
+### Proyecto de Supabase
+- Proyecto `mtcitbfyizdlllfvoxka` (us-east-1). Instalado por la Management API: esquema, seed, historial y la función `admin-users`.
+- Registro público desactivado (`disable_signup`): solo el administrador crea cuentas, desde la función `admin-users`.
+- La clave pública es del formato nuevo `sb_publishable_…` (equivale a la anon key) y va en `VITE_SUPABASE_ANON_KEY`.
+
 ### Valores iniciales de configuración
 - Bono diario de créditos: 100. Margen de la casa: 6 %. Tope de apuesta de club: 10 % del presupuesto.
 - Precio de entrada 45 USD; aforo genérico por nivel: 6 000 / 9 000 / 12 000 / 16 000.
