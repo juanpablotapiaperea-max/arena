@@ -63,8 +63,8 @@ export interface EngineSettings {
   injuryChancePerMatch: number; // 0.005
   injuryDays: [number, number]; // 1-10
   /** Duración de reproducción en vivo (segundos). */
-  periodSeconds: number; // 300 (5 min)
-  overtimeSeconds: number; // 120 (2 min)
+  periodSeconds: number; // 100 (3 periodos = 5 min)
+  overtimeSeconds: number; // 40
 }
 
 export interface TeamInput {

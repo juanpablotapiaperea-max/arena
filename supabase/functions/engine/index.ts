@@ -3,13 +3,14 @@
 import { AppError, q, serviceClient, userClient } from './db.ts';
 import { createEdition } from './season.ts';
 import { addBlock, createDay, deleteDay, generatePlan, getPlan, mergeDays, moveBlock, publishDay, removeBlock, unplanned } from './plan.ts';
-import { cancelItem, closeDay, dayStatus, forceItem, pauseDay, resumeDay, shiftItem, startDay, tick } from './day.ts';
+import { cancelItem, closeDay, compactDay, dayStatus, forceItem, pauseDay, resumeDay, setMatchEvent, shiftItem, startDay, tick } from './day.ts';
 import { longTermOdds, oddsForMatch, placeBet } from './bets.ts';
 import { simulateUnitNow, snapshotProbabilities, editionMatches } from './run.ts';
 import type { EditionRow } from './types.ts';
 import { autoCloseWindow, closeWindow, forceTransfer, marketStatus, openWindow, vetoTransfer } from './market.ts';
 import { advanceDraft, draftState, ownerPick, prepareDraft, startDraft } from './draft.ts';
 import { closePreview, closeSeason } from './close.ts';
+import { maybeGossip, newsGossip } from './news.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -36,6 +37,9 @@ const ADMIN = new Set([
   'day.resume',
   'day.close',
   'day.status',
+  'day.compact',
+  'match.event',
+  'press.gossip',
   'item.shift',
   'item.cancel',
   'item.force',
@@ -69,6 +73,7 @@ Deno.serve(async (req) => {
       const out = await tick(db);
       await autoCloseWindow(db).catch(() => null);
       await advanceDraft(db).catch(() => null);
+      await maybeGossip(db).catch(() => null);
       return json(out);
     }
 
@@ -133,6 +138,13 @@ Deno.serve(async (req) => {
         return json(await dayStatus(db, body.dayId));
       case 'day.status':
         return json(await dayStatus(db, body.dayId));
+      case 'day.compact':
+        await compactDay(db, body.dayId);
+        return json(await dayStatus(db, body.dayId));
+      case 'press.gossip':
+        return json({ made: await newsGossip(db, Math.min(20, Math.max(1, Number(body.count ?? 5)))) });
+      case 'match.event':
+        return json(await setMatchEvent(db, body.matchId, !!body.on, body.name));
       case 'item.shift':
         await shiftItem(db, body.itemId, Number(body.minutes ?? 5));
         return json({ ok: true });

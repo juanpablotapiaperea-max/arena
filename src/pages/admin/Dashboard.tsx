@@ -129,6 +129,11 @@ function DayControl({
                 <Play size={16} /> Reanudar
               </Button>
             )}
+            {day.status === 'running' && (
+              <Button variant="ghost" onClick={() => act('compact', 'day.compact', { dayId: day.id }, 'Día reacomodado')} disabled={busy !== null} title="Junta todo lo pendiente desde ahora, sin huecos">
+                <Zap size={16} /> Quitar huecos
+              </Button>
+            )}
             <Button variant="ghost" onClick={() => act('tick', 'tick', {}, 'Ejecutado')} disabled={busy !== null} title="Ejecuta ya lo que toque sin esperar al siguiente minuto">
               <Zap size={16} /> Ejecutar ahora
             </Button>
@@ -188,7 +193,7 @@ function DayControl({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{it.label}</div>
                 <div className="text-xs text-muted">
-                  {it.kind === 'burst' ? `Ráfaga de ${it.burst_size} partidos` : it.kind === 'event' ? 'Evento en vivo · 15 min' : 'Resumen y cierre'}
+                  {it.kind === 'burst' ? `Ráfaga de ${it.burst_size} partidos` : it.kind === 'event' ? 'Evento en vivo · 5 min' : 'Resumen y cierre'}
                   {it.status === 'done' && it.result?.matches !== undefined ? ` · ${it.result.matches} jugados` : ''}
                 </div>
               </div>

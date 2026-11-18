@@ -24,8 +24,8 @@ export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
   fatiguePerExtraGame: 0.01,
   injuryChancePerMatch: 0.005,
   injuryDays: [1, 10],
-  periodSeconds: 300,
-  overtimeSeconds: 120,
+  periodSeconds: 100,
+  overtimeSeconds: 40,
 };
 
 export const STYLE_LABELS: Record<keyof EngineSettings['styles'], string> = {

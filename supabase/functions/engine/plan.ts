@@ -27,17 +27,19 @@ export interface CalendarSettings {
   maxEventsPerDay: number;
   derbyThreshold: number;
   maxMatchesPerDay?: number;
+  minLiveEventsPerDay?: number;
 }
 
 export const DEFAULT_CALENDAR: CalendarSettings = {
-  burstEveryMinutes: 5,
-  burstMin: 3,
-  burstMax: 6,
-  liveEventMinutes: 15,
-  maxLiveEventsPerDay: 24,
-  maxEventsPerDay: 24,
+  burstEveryMinutes: 2,
+  burstMin: 5,
+  burstMax: 8,
+  liveEventMinutes: 6,
+  maxLiveEventsPerDay: 40,
+  maxEventsPerDay: 40,
   derbyThreshold: 70,
-  maxMatchesPerDay: 360,
+  maxMatchesPerDay: 800,
+  minLiveEventsPerDay: 30,
 };
 
 /** Puntaje de interés de una jornada o ronda (0-100). */
@@ -118,7 +120,11 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
   const interestOf = (q0: (typeof queues)[number], u: Unit) => unitInterest(u, q0.regular, Number(q0.e.config.weight ?? 1));
   const totalInterest = queues.reduce((s, x) => s + x.pending.reduce((t, u) => t + interestOf(x, u), 0), 0);
   const target = totalInterest / days.length;
-  const maxMatches = cal.maxMatchesPerDay ?? 360;
+  // El tope diario crece lo necesario para que todo lo elegido termine en los
+  // días elegidos (por ejemplo, la temporada completa en una semana).
+  const pendingMatches = queues.reduce((s, x) => s + x.pending.reduce((t, u) => t + (u.main ? 0 : u.matches), 0), 0);
+  const maxMatches = Math.max(cal.maxMatchesPerDay ?? 800, Math.ceil((pendingMatches * 1.08) / days.length));
+  const matchTarget = Math.ceil(pendingMatches / days.length);
 
   const blocks: Record<string, unknown>[] = [];
   for (let d = 0; d < days.length; d++) {
@@ -138,7 +144,9 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
         return matches + m <= maxMatches && lives + liveOf(u) <= cal.maxLiveEventsPerDay;
       });
       if (!next) break;
-      if (!isLast && interest >= target && order > 0) break;
+      // Reparto parejo: cada día lleva la misma cantidad de partidos (o de interés
+      // si solo quedan eventos en vivo), y las competiciones avanzan a la par.
+      if (!isLast && order > 0 && (pendingMatches > 0 ? matches >= matchTarget : interest >= target)) break;
       const u = next.pending[next.cursor++];
       const score = interestOf(next, u);
       interest += score;

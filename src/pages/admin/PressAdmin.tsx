@@ -5,7 +5,7 @@ import { Check, EyeOff, Pin, Sparkles } from 'lucide-react';
 import { db } from '@/lib/supabase';
 import { useTeams } from '@/lib/hooks';
 import { useA11y } from '@/lib/a11y';
-import type { News } from '@/lib/engine';
+import { engine, type News } from '@/lib/engine';
 import { Badge, Button, Card, ErrorBox, Input, Label, SectionTitle, Spinner, cn } from '@/components/ui';
 import { SettingsForm } from '@/components/SettingsForm';
 
@@ -41,6 +41,29 @@ export function PressAdmin() {
   return (
     <div className="space-y-6">
       <SectionTitle>Prensa</SectionTitle>
+      <Card className="flex flex-wrap items-center gap-3 border-pink-500/40">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold">
+            <span aria-hidden>💋</span> Chismes
+          </h3>
+          <p className="text-sm text-muted">Romances, pleitos de vestidor, fiestas y rumores de los jugadores (todo ficticio). Salen solos cada rato; aquí puedes soltar varios ya.</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={async () => {
+            setError(null);
+            try {
+              const r = await engine<{ made: number }>('press.gossip', { count: 5 });
+              say(`${r.made} chismes publicados`);
+              qc.invalidateQueries({ queryKey: ['admin-news'] });
+            } catch (e) {
+              setError(e);
+            }
+          }}
+        >
+          Soltar 5 chismes
+        </Button>
+      </Card>
       <Card>
         <h3 className="mb-1 flex items-center gap-2 font-semibold">
           <Sparkles size={16} className="text-primary" aria-hidden /> Redacción con IA (Claude)
@@ -58,6 +81,8 @@ export function PressAdmin() {
             { path: 'autoPublish.suave', label: 'Publicar solas las piezas suaves', type: 'boolean' },
             { path: 'autoPublish.medio', label: 'Publicar solas las piezas de tono medio', type: 'boolean' },
             { path: 'autoPublish.picante', label: 'Publicar solas las picantes (si no, pasan por tu cola)', type: 'boolean' },
+            { path: 'gossipEnabled', label: 'Publicar chismes automáticamente (7 a 23 h)', type: 'boolean' },
+            { path: 'gossipEveryMinutes', label: 'Un chisme nuevo cada (minutos)', type: 'number', min: 5, step: 5 },
           ]}
         />
       </Card>

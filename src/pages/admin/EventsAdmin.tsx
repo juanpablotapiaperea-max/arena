@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { EyeOff, Lock, Plus, Radio, Star, Trash2 } from 'lucide-react';
 import { db } from '@/lib/supabase';
-import { getEditions, type Match } from '@/lib/engine';
+import { engine, getEditions, type Match } from '@/lib/engine';
 import { useCompetitions, useTeams } from '@/lib/hooks';
 import { useA11y } from '@/lib/a11y';
 import { Badge, Button, Card, ErrorBox, Input, Label, SectionTitle, Spinner } from '@/components/ui';
@@ -31,17 +31,27 @@ function UpcomingMain() {
   const q = useQuery({
     queryKey: ['admin-upcoming'],
     queryFn: async () => {
-      const { data } = await db().from('matches').select('*').eq('status', 'scheduled').order('unit_index').limit(400);
+      const { data } = await db().from('matches').select('*').eq('status', 'scheduled').order('scheduled_at', { ascending: true, nullsFirst: false }).order('unit_index').limit(1000);
       return (data ?? []) as Match[];
     },
   });
   const [filter, setFilter] = useState('');
+  const [err, setErr] = useState<unknown>(null);
+  const [note, setNote] = useState<string | null>(null);
   const toggle = async (m: Match) => {
-    await db()
-      .from('matches')
-      .update({ is_main_event: !m.is_main_event, event_name: !m.is_main_event ? `Evento del momento · ${byId.get(m.home_team_id)?.name} vs ${byId.get(m.away_team_id)?.name}` : null })
-      .eq('id', m.id);
-    say(m.is_main_event ? 'Evento quitado' : 'Partido convertido en evento principal');
+    setErr(null);
+    try {
+      const r = await engine<{ scheduled: string | null }>('match.event', { matchId: m.id, on: !m.is_main_event });
+      const msg = m.is_main_event
+        ? 'Evento quitado: se juega en la siguiente ráfaga de su jornada.'
+        : r.scheduled
+          ? `Listo: sale en vivo hoy a las ${fmtTime(r.scheduled)}.`
+          : 'Listo: saldrá en vivo el día en que se juegue su jornada.';
+      setNote(msg);
+      say(msg);
+    } catch (e) {
+      setErr(e);
+    }
     qc.invalidateQueries({ queryKey: ['admin-upcoming'] });
   };
   const list = (q.data ?? []).filter((m) => {
@@ -55,8 +65,14 @@ function UpcomingMain() {
         <Radio size={16} className="text-live" aria-hidden /> Eventos del momento
       </h3>
       <p className="text-sm text-muted">
-        Los cuartos, semifinales, finales y derbis (puntaje ≥ 70) ya van en vivo solos al iniciar el día. Aquí puedes forzar cualquier otro partido o quitar uno.
+        Los cuartos, semifinales, finales y los mejores derbis ya van en vivo solos. Aquí conviertes cualquier otro partido en evento, aunque el día ya haya empezado: entra en la fila de vivos al momento. Arriba salen primero los partidos de hoy.
       </p>
+      {note && (
+        <p className="rounded-xl bg-primary/10 p-3 text-sm text-primary" role="status">
+          {note}
+        </p>
+      )}
+      {err ? <ErrorBox error={err} /> : null}
       <Input placeholder="Buscar equipo" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Buscar equipo" />
       {q.isLoading ? (
         <Spinner />

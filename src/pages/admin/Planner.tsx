@@ -51,11 +51,11 @@ function mondayOf(d: Date) {
 }
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Minutos estimados del día: ráfagas cada 5 min y eventos en vivo de 15. */
+/** Minutos estimados del día: ráfagas cada 2 min (máx. 6 h) y vivos de 6 min. */
 function estimateMinutes(d: Pick<PlanDay, 'matches' | 'lives'>) {
   const normal = Math.max(0, d.matches - d.lives);
   const bursts = Math.ceil(normal / 6);
-  return Math.max(bursts * 5, d.lives * 15 + 5);
+  return Math.min(360, Math.max(bursts * 2, d.lives * 6 + 2));
 }
 const fmtDur = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ''}` : `${min} min`);
 
@@ -100,10 +100,29 @@ export function Planner() {
     }
   };
 
-  const generate = () =>
-    run('generate', () => engine<Plan>('plan.generate', { dates: [...pickedDays].sort(), editionIds: [...eds] }), 'Plan generado').then(() =>
-      setPickedDays(new Set()),
-    );
+  const generate = (dates = [...pickedDays].sort(), editionIds = [...eds]) =>
+    run('generate', () => engine<Plan>('plan.generate', { dates, editionIds }), 'Plan generado').then(() => setPickedDays(new Set()));
+
+  // Los próximos 7 días libres (desde hoy si hoy no tiene día en curso o jugado).
+  const nextSevenDays = () => {
+    const out: string[] = [];
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    for (let guard = 0; out.length < 7 && guard < 30; guard++) {
+      const date = iso(d);
+      const ex = existingDates.get(date);
+      if (!ex || ex.status === 'planned') out.push(date);
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  };
+  const seasonInWeek = () => {
+    const dates = nextSevenDays();
+    const all = active.map((e) => e.id);
+    if (!all.length) return;
+    if (!window.confirm(`Se reparte todo lo que falta de ${all.length} competiciones en 7 días (${fmtShortDate(dates[0])} a ${fmtShortDate(dates[6])}). Los días ya planeados en esas fechas se rehacen. ¿Continuar?`)) return;
+    generate(dates, all);
+  };
 
   const maxInterest = Math.max(1, ...days.map((d) => d.interest));
 
@@ -111,6 +130,19 @@ export function Planner() {
     <div className="space-y-6">
       <SectionTitle>Planificador semanal</SectionTitle>
       {error ? <ErrorBox error={error} /> : null}
+
+      {/* Atajo: toda la temporada en una semana */}
+      <section className="card flex flex-wrap items-center gap-3 border-primary/40 bg-primary/5 p-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="flex items-center gap-2 font-semibold">
+            <Sparkles size={18} className="text-primary" aria-hidden /> Temporada completa en 7 días
+          </h3>
+          <p className="text-sm text-muted">Reparte todo lo que falta de todas las competiciones en los próximos 7 días, parejo y para que terminen juntas el último día.</p>
+        </div>
+        <Button onClick={seasonInWeek} disabled={!active.length || busy !== null}>
+          {busy === 'generate' ? 'Generando…' : 'Armar la semana'}
+        </Button>
+      </section>
 
       {/* Paso 1 y 2 */}
       <section className="card space-y-5 p-4" aria-labelledby="gen-title">
@@ -218,7 +250,7 @@ export function Planner() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={generate} disabled={!pickedDays.size || !eds.size || busy !== null}>
+          <Button onClick={() => generate()} disabled={!pickedDays.size || !eds.size || busy !== null}>
             <Sparkles size={16} /> {busy === 'generate' ? 'Generando…' : `3 · Generar ${pickedDays.size || ''} ${pickedDays.size === 1 ? 'día' : 'días'}`}
           </Button>
           <span className="text-xs text-muted">Reparte las jornadas buscando un interés parecido por día. Luego puedes arrastrarlas.</span>

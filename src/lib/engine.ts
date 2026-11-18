@@ -214,6 +214,7 @@ export interface LiveFeed {
   started_at?: string;
   elapsed?: number;
   duration?: number;
+  period_seconds?: number;
   events: TimelineEvent[];
 }
 

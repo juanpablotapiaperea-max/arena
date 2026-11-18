@@ -8,3 +8,4 @@ supabase/.branches
 .vercel
 .env*
 supabase/.build
+scripts/_h/

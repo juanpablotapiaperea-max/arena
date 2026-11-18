@@ -4,6 +4,8 @@
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { all, getSetting, q, type DB } from './db.ts';
 import type { EditionRow, MatchDb, TeamRow } from './types.ts';
+import { generateGossip, type GossipPlayer } from '../../../shared/press/gossip.ts';
+
 
 type Tone = 'suave' | 'medio' | 'picante';
 
@@ -213,4 +215,73 @@ export async function newsDay(db: DB, dayId: string) {
   const events = items.filter((i) => i.kind === 'event').map((i) => i.label).filter(Boolean);
   const facts = `Cierre del día de competencia. Partidos jugados: ${matches}. Eventos en vivo: ${events.join('; ') || 'ninguno'}.`;
   await publish(db, { kind: 'cierre_dia', tone: 'suave', facts, fallback: { title: 'Así se vivió el día en ARENA', body: facts } });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Chismes: vida privada y deportiva de jugadores y equipos (todo ficticio)
+// ─────────────────────────────────────────────────────────────
+
+interface GossipSettings {
+  gossipEnabled?: boolean;
+  gossipEveryMinutes?: number;
+}
+
+/** Publica `count` chismes nuevos. */
+export async function newsGossip(db: DB, count = 1) {
+  const teams = await all<{ id: string; name: string }>(() => db.from('teams').select('id,name'));
+  const tName = new Map(teams.map((t) => [t.id, t.name]));
+  const players = await all<{ id: string; first_name: string; last_name: string; position: 'G' | 'D' | 'F'; number: number; age: number; rating: number; team_id: string | null }>(() =>
+    db.from('players').select('id,first_name,last_name,position,number,age,rating,team_id').not('team_id', 'is', null).eq('retired', false),
+  );
+  const gp: GossipPlayer[] = players
+    .filter((p) => p.team_id)
+    .map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`, position: p.position, number: p.number, age: p.age, rating: Math.round(p.rating), teamId: p.team_id!, teamName: tName.get(p.team_id!) ?? '' }));
+  if (gp.length < 3) return 0;
+  // Las estrellas salen más en los chismes.
+  const weighted = (xs: GossipPlayer[]) => {
+    const total = xs.reduce((s, p) => s + Math.pow(Math.max(1, p.rating - 60), 2), 0);
+    let r = Math.random() * total;
+    for (const p of xs) {
+      r -= Math.pow(Math.max(1, p.rating - 60), 2);
+      if (r <= 0) return p;
+    }
+    return xs[xs.length - 1];
+  };
+  const recent = await q<{ player_id: string | null }[]>(db.from('news').select('player_id').eq('kind', 'chisme').order('created_at', { ascending: false }).limit(30));
+  const recentIds = new Set(recent.map((r) => r.player_id));
+  let made = 0;
+  for (let i = 0; i < count; i++) {
+    const pool = gp.filter((p) => !recentIds.has(p.id));
+    const player = weighted(pool.length ? pool : gp);
+    const mates = gp.filter((p) => p.teamId === player.teamId && p.id !== player.id);
+    const others = gp.filter((p) => p.teamId !== player.teamId);
+    const other = weighted(others);
+    const mate = mates[Math.floor(Math.random() * mates.length)] ?? other;
+    const rivalTeams = teams.filter((t) => t.id !== player.teamId);
+    const rival = rivalTeams[Math.floor(Math.random() * rivalTeams.length)];
+    const g = generateGossip(Math.random, { player, other, mate, rival });
+    recentIds.add(player.id);
+    const facts = [
+      'Escribe un CHISME de farándula deportiva (sección de chismes), ficticio y divertido, sin groserías ni contenido sexual, sin temas de drogas ni violencia.',
+      `Tema: ${g.category}. Inspírate en este titular: "${g.title}".`,
+      `Protagonista: ${player.name}, ${player.position === 'G' ? 'portero' : player.position === 'D' ? 'defensa' : 'delantero'} #${player.number} de ${player.teamName}, ${player.age} años.`,
+      `También pueden aparecer: ${mate.name} (compañero en ${mate.teamName}), ${other.name} (${other.teamName}) y el equipo ${rival.name}.`,
+      'Usa fuentes anónimas, frases entre comillas inventadas y termina diciendo que nada está confirmado.',
+    ].join('\n');
+    await publish(db, { kind: 'chisme', facts, fallback: { title: g.title, body: g.body }, teamId: player.teamId, playerId: player.id, rumor: true, tone: 'medio' });
+    made++;
+  }
+  return made;
+}
+
+/** Desde el cron: un chisme cada cierto tiempo, de 7 a 23 h (hora de México). */
+export async function maybeGossip(db: DB) {
+  const cfg = await getSetting<GossipSettings>(db, 'press', {});
+  if (cfg.gossipEnabled === false) return 0;
+  const every = Math.max(5, cfg.gossipEveryMinutes ?? 20);
+  const hourMx = (new Date().getUTCHours() + 24 - 6) % 24;
+  if (hourMx < 7 || hourMx >= 23) return 0;
+  const last = await q<{ created_at: string }[]>(db.from('news').select('created_at').eq('kind', 'chisme').order('created_at', { ascending: false }).limit(1));
+  if (last[0] && Date.now() - Date.parse(last[0].created_at) < every * 60_000) return 0;
+  return newsGossip(db, 1);
 }

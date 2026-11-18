@@ -121,20 +121,37 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
     if (normal > 0) burstUnits.push({ block: b, unit, count: normal });
   }
 
-  // Cada día lleva al menos un evento en vivo cuando hay material: si ningún
-  // partido llegó al umbral, se transmiten los mejores derbis del día (hasta 3).
-  if (!lives.length && regular.length) {
-    const best = regular
-      .map((m) => ({ m, d: derbies.get(m.id)! }))
-      .filter((x) => x.d)
-      .sort((a, b) => b.d.score - a.d.score)
-      .slice(0, Math.min(3, Math.max(1, Math.floor(regular.length / 60))));
-    for (const { m, d } of best) {
+  // Mínimo de eventos en vivo por día: si los derbis que pasaron el umbral no
+  // alcanzan, se completan con los mejores partidos, repartidos entre todas las
+  // jornadas del día para que siempre haya algo en vivo y sin huecos largos.
+  const minLives = Math.min(cal.minLiveEventsPerDay ?? 8, cal.maxLiveEventsPerDay);
+  if (lives.length < minLives && regular.length) {
+    const chosen = new Set(lives.map((l) => l.matchId));
+    const byBlock = new Map<string, { m: MatchDb; d: { score: number; name: string } }[]>();
+    for (const m of regular) {
+      const d = derbies.get(m.id);
+      if (!d || chosen.has(m.id)) continue;
       const b = blocks.find((x) => x.edition_id === m.edition_id && x.unit_index === m.unit_index)!;
-      const e = editions.get(b.edition_id)!;
-      lives.push({ block: b, unit: e.state.units.find((u) => u.index === b.unit_index)!, matchId: m.id, slot: -1, score: d.score, name: d.name, final: false });
-      const bu = burstUnits.find((x) => x.block.id === b.id);
-      if (bu) bu.count--;
+      if (!byBlock.has(b.id)) byBlock.set(b.id, []);
+      byBlock.get(b.id)!.push({ m, d });
+    }
+    for (const list of byBlock.values()) list.sort((a, b) => b.d.score - a.d.score);
+    // Ronda a ronda: el mejor de cada jornada, luego el segundo mejor, etc.
+    const orderBlocks = blocks.filter((b) => byBlock.has(b.id));
+    let need = minLives - lives.length;
+    for (let r = 0; need > 0 && orderBlocks.some((b) => byBlock.get(b.id)!.length > r); r++) {
+      const step = Math.max(1, Math.floor(orderBlocks.length / need));
+      for (let i = 0; i < orderBlocks.length && need > 0; i += r === 0 ? step : 1) {
+        const pick = byBlock.get(orderBlocks[i].id)![r];
+        if (!pick || chosen.has(pick.m.id)) continue;
+        const b = orderBlocks[i];
+        const e = editions.get(b.edition_id)!;
+        lives.push({ block: b, unit: e.state.units.find((u) => u.index === b.unit_index)!, matchId: pick.m.id, slot: -1, score: pick.d.score, name: pick.d.name, final: false });
+        chosen.add(pick.m.id);
+        const bu = burstUnits.find((x) => x.block.id === b.id);
+        if (bu) bu.count--;
+        need--;
+      }
     }
   }
 
@@ -155,7 +172,7 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   const liveMinutes = cal.liveEventMinutes;
   const keptIds = new Set(kept);
 
-  // Tamaño de ráfaga: de 3 a 6 partidos; más si no cabe en la ventana de 6 horas.
+  // Tamaño de ráfaga: desde 3 partidos; más si no cabe en la ventana de 6 horas.
   const totalNormal = burstUnits.reduce((s, b) => s + b.count, 0);
   const slots = Math.floor(windowMin / cal.burstEveryMinutes);
   // El menor tamaño de ráfaga (desde 3) con el que todo cabe en la ventana.
@@ -168,7 +185,7 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // eventos en vivo van uno tras otro; una ronda en vivo arranca cuando ya
   // terminó todo lo anterior.
   let burstAt = 1; // minutos desde t0
-  let liveAt = 5;
+  let liveAt = 1;
   let k = 0;
   const pushLive = (l: Live, at: number) => {
     items.push({
@@ -375,8 +392,26 @@ async function finishLive(db: DB, item: ScheduleItem): Promise<void> {
 }
 
 /** Ejecuta lo que toca ahora. La llama la tarea programada cada minuto. */
+/** Arranque automático: el día planeado de hoy empieza a las 8:00 (México) si no hay otro en curso. */
+async function autoStart(db: DB): Promise<string | null> {
+  const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings> & { autoStart?: boolean }>(db, 'calendar', {})) };
+  if ((cal as { autoStart?: boolean }).autoStart === false) return null;
+  const busy = await q<{ id: string }[]>(db.from('competition_days').select('id').in('status', ['running', 'paused']));
+  if (busy.length) return null;
+  const nowMx = new Date(Date.now() - 6 * 3600_000);
+  const today = nowMx.toISOString().slice(0, 10);
+  if (nowMx.getUTCHours() < 8) return null;
+  const day = (await q<{ id: string }[]>(db.from('competition_days').select('id').eq('date', today).eq('status', 'planned')))[0];
+  if (!day) return null;
+  const blocks = await q<{ id: string }[]>(db.from('plan_blocks').select('id').eq('day_id', day.id).limit(1));
+  if (!blocks.length) return null;
+  await startDay(db, day.id, 'now');
+  return day.id;
+}
+
 export async function tick(db: DB, budgetMs = 40_000) {
   const t = Date.now();
+  const started = await autoStart(db).catch(() => null);
   const days = await q<DayRow[]>(db.from('competition_days').select('*').eq('status', 'running'));
   const log: string[] = [];
   for (const day of days) {
@@ -407,7 +442,7 @@ export async function tick(db: DB, budgetMs = 40_000) {
       if (fresh.status !== 'pending') log.push(`${item.kind}:${item.label}`);
     }
   }
-  return { ran: log, ms: Date.now() - t };
+  return { ran: log, started, ms: Date.now() - t };
 }
 
 export async function closeDay(db: DB, dayId: string) {
@@ -421,20 +456,58 @@ export async function pauseDay(db: DB, dayId: string) {
   await q(db.from('competition_days').update({ status: 'paused', closed_at: new Date().toISOString() }).eq('id', dayId).eq('status', 'running'));
 }
 
-/** Reanuda: todo lo pendiente (y el evento en vivo) se recorre lo que duró la pausa. */
+/**
+ * Reanuda: el evento en vivo que estaba en curso se recorre lo que duró la
+ * pausa, y todo lo pendiente se reacomoda desde ahora con el ritmo actual
+ * (ráfagas cada pocos minutos y vivos uno tras otro, sin huecos).
+ */
 export async function resumeDay(db: DB, dayId: string) {
   const day = await q<DayRow>(db.from('competition_days').select('*').eq('id', dayId).single());
   if (day.status !== 'paused') throw new AppError('El día no está en pausa');
   const pausedMs = Date.now() - Date.parse(day.closed_at ?? new Date().toISOString());
   const items = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', dayId).in('status', ['pending', 'running']));
-  for (const it of items) {
-    if (it.status === 'pending') await q(db.from('schedule_items').update({ scheduled_at: new Date(Date.parse(it.scheduled_at) + pausedMs).toISOString() }).eq('id', it.id));
-    else if (it.match_id) {
-      const m = await q<{ started_at: string }>(db.from('matches').select('started_at').eq('id', it.match_id).single());
-      await q(db.from('matches').update({ started_at: new Date(Date.parse(m.started_at) + pausedMs).toISOString() }).eq('id', it.match_id));
-    }
+  let liveBusyUntil = Date.now();
+  for (const it of items.filter((x) => x.status === 'running' && x.match_id)) {
+    const m = await q<{ started_at: string }>(db.from('matches').select('started_at').eq('id', it.match_id!).single());
+    const started = Date.parse(m.started_at) + pausedMs;
+    await q(db.from('matches').update({ started_at: new Date(started).toISOString() }).eq('id', it.match_id!));
+    liveBusyUntil = Math.max(liveBusyUntil, started + (await liveMinutesOf(db)) * MIN);
   }
   await q(db.from('competition_days').update({ status: 'running', closed_at: null }).eq('id', dayId));
+  await compactDay(db, dayId, liveBusyUntil);
+}
+
+async function liveMinutesOf(db: DB) {
+  const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
+  return cal.liveEventMinutes;
+}
+
+/** Reacomoda lo pendiente del día con el ritmo actual, desde ahora. */
+export async function compactDay(db: DB, dayId: string, liveFrom = Date.now()) {
+  const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
+  const pending = (await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', dayId).eq('status', 'pending'))).sort(
+    (a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at) || a.sort_order - b.sort_order,
+  );
+  let burstAt = Date.now() + 0.5 * MIN;
+  let liveAt = Math.max(liveFrom, Date.now() + 0.5 * MIN);
+  let end = burstAt;
+  for (const it of pending) {
+    let at: number;
+    if (it.kind === 'burst') {
+      at = burstAt;
+      burstAt += cal.burstEveryMinutes * MIN;
+    } else if (it.kind === 'event') {
+      at = Math.max(liveAt, burstAt - cal.burstEveryMinutes * MIN);
+      liveAt = at + cal.liveEventMinutes * MIN;
+    } else continue;
+    end = Math.max(end, it.kind === 'event' ? liveAt : burstAt);
+    const iso = new Date(at).toISOString();
+    await q(db.from('schedule_items').update({ scheduled_at: iso }).eq('id', it.id));
+    if (it.match_id) await q(db.from('matches').update({ scheduled_at: iso }).eq('id', it.match_id));
+  }
+  for (const it of pending.filter((x) => x.kind === 'summary')) {
+    await q(db.from('schedule_items').update({ scheduled_at: new Date(end + 2 * MIN).toISOString() }).eq('id', it.id));
+  }
 }
 
 /** Adelanta (minutos negativos) o atrasa un elemento del guion. */
@@ -465,4 +538,66 @@ export async function dayStatus(db: DB, dayId?: string) {
   if (!day) return { day: null, items: [] };
   const items = await all<ScheduleItem>(() => db.from('schedule_items').select('*').eq('day_id', day.id).order('scheduled_at'));
   return { day, items };
+}
+
+/**
+ * Convierte un partido en evento en vivo (o lo regresa a normal). Si su jornada
+ * está en el día en curso, entra de inmediato a la fila de vivos (o a una ráfaga).
+ */
+export async function setMatchEvent(db: DB, matchId: string, on: boolean, name?: string) {
+  const m = await q<MatchDb>(db.from('matches').select(MATCH_COLS).eq('id', matchId).single());
+  if (m.status !== 'scheduled') throw new AppError('Ese partido ya se jugó o está en vivo');
+  const teams = await q<{ id: string; name: string }[]>(db.from('teams').select('id,name').in('id', [m.home_team_id, m.away_team_id]));
+  const tn = (id: string) => teams.find((t) => t.id === id)?.name ?? '';
+  await q(
+    db.from('matches').update({
+      is_main_event: on,
+      event_name: on ? (name ?? `Evento del momento · ${tn(m.home_team_id)} vs ${tn(m.away_team_id)}`) : null,
+    }).eq('id', matchId),
+  );
+
+  const days = await q<DayRow[]>(db.from('competition_days').select('*').in('status', ['running', 'paused']));
+  const day = days[0];
+  if (!day) return { scheduled: null };
+  const block = (await q<Block[]>(db.from('plan_blocks').select('*').eq('day_id', day.id).eq('edition_id', m.edition_id).eq('unit_index', m.unit_index)))[0];
+  if (!block) return { scheduled: null }; // su jornada se juega otro día: saldrá en vivo ese día
+  const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
+  const items = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).in('status', ['pending', 'running']));
+
+  if (on) {
+    if (items.some((i) => i.match_id === matchId)) return { scheduled: items.find((i) => i.match_id === matchId)!.scheduled_at };
+    // Siguiente hueco libre en la fila de vivos.
+    const lives = items.filter((i) => i.kind === 'event');
+    let at = Date.now() + MIN;
+    for (const l of lives) {
+      const start = Date.parse(l.scheduled_at);
+      const startedAt = l.status === 'running' && l.match_id ? Date.now() : start;
+      at = Math.max(at, startedAt + cal.liveEventMinutes * MIN);
+    }
+    const iso = new Date(at).toISOString();
+    await insertMany(db, 'schedule_items', [
+      { day_id: day.id, kind: 'event', block_id: block.id, edition_id: m.edition_id, unit_index: m.unit_index, match_id: matchId, sort_order: -1, scheduled_at: iso, label: on ? (name ?? `Evento del momento · ${tn(m.home_team_id)} vs ${tn(m.away_team_id)}`) : '' },
+    ]);
+    await q(db.from('matches').update({ scheduled_at: iso }).eq('id', matchId));
+    // El cierre del día espera a este vivo.
+    for (const s of items.filter((i) => i.kind === 'summary' && i.status === 'pending')) {
+      if (Date.parse(s.scheduled_at) < at + (cal.liveEventMinutes + 2) * MIN) {
+        await q(db.from('schedule_items').update({ scheduled_at: new Date(at + (cal.liveEventMinutes + 2) * MIN).toISOString() }).eq('id', s.id));
+      }
+    }
+    return { scheduled: iso };
+  }
+
+  // Quitar: se cancela su vivo pendiente y entra en la siguiente ráfaga de su jornada.
+  for (const it of items.filter((i) => i.match_id === matchId && i.status === 'pending')) {
+    await q(db.from('schedule_items').update({ status: 'cancelled' }).eq('id', it.id));
+  }
+  const pendingBurst = items.find((i) => i.kind === 'burst' && i.status === 'pending' && i.block_id === block.id);
+  if (!pendingBurst) {
+    const iso = new Date(Date.now() + MIN).toISOString();
+    await insertMany(db, 'schedule_items', [
+      { day_id: day.id, kind: 'burst', block_id: block.id, edition_id: m.edition_id, unit_index: m.unit_index, burst_size: 1, sort_order: 999, scheduled_at: iso, label: block.label },
+    ]);
+  }
+  return { scheduled: null };
 }

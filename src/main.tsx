@@ -7,9 +7,16 @@ import { AuthProvider } from '@/lib/auth';
 import { A11yProvider, useA11y } from '@/lib/a11y';
 import { MotionConfig } from 'framer-motion';
 import App from './App';
+import { ErrorBoundary, reloadForNewVersion } from '@/components/ErrorBoundary';
 import './styles/index.css';
 
 document.title = APP_NAME;
+
+// Si se publicó una versión nueva mientras la app estaba abierta, los archivos
+// viejos ya no existen: se recarga sola para traer la nueva en vez de quedar en negro.
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadForNewVersion()) e.preventDefault();
+});
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -27,7 +34,9 @@ createRoot(document.getElementById('root')!).render(
         <Motion>
           <AuthProvider>
             <BrowserRouter>
-              <App />
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
             </BrowserRouter>
           </AuthProvider>
         </Motion>

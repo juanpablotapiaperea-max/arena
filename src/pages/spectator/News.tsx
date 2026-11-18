@@ -1,6 +1,7 @@
 // Noticias: resúmenes, crónicas, historias, rumores y polémicas.
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Flame, Newspaper, Pin, Sparkles } from 'lucide-react';
 import { useTeams } from '@/lib/hooks';
 import { useRealtime } from '@/lib/realtime';
@@ -21,6 +22,7 @@ const KIND: Record<string, string> = {
   polemica: 'Polémica',
   manual: 'Editorial',
   draft: 'Draft',
+  chisme: 'Chisme',
 };
 
 export function NewsPage() {
@@ -33,12 +35,23 @@ export function NewsPage() {
     if (id) document.getElementById(`n-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [q.data]);
   if (q.isLoading) return <Spinner />;
-  const all = q.data ?? [];
+  const gossip = (q.data ?? []).filter((n) => n.kind === 'chisme');
+  const all = (q.data ?? []).filter((n) => n.kind !== 'chisme');
   const kinds = ['todas', ...new Set(all.map((n) => n.kind))];
   const list = filter === 'todas' ? all : all.filter((n) => n.kind === filter);
   return (
     <div className="space-y-4">
       <SectionTitle>Noticias</SectionTitle>
+      <Link to="/chismes" className="focus-ring card flex items-center gap-3 border-pink-500/40 p-3 transition hover:border-pink-400" style={{ background: 'linear-gradient(110deg, #db277722, transparent 70%)' }}>
+        <span className="text-2xl" aria-hidden>
+          💋
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold uppercase tracking-widest text-pink-300">Chismes de la liga</span>
+          <span className="block truncate font-semibold">{gossip[0]?.title ?? 'Romances, pleitos y rumores de los jugadores'}</span>
+        </span>
+        <span className="text-sm font-semibold text-pink-300">Ver →</span>
+      </Link>
       {all.length === 0 ? (
         <EmptyState icon={<Newspaper className="text-primary" size={30} />} title="Sin noticias todavía">
           La prensa de ARENA publica resúmenes, crónicas y rumores en cuanto se juegan los partidos.

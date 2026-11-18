@@ -31,7 +31,6 @@ import { Badge, Button, SectionTitle, Spinner, cn } from '@/components/ui';
 import { Countdown, EmptyState, LiveBadge, Score, fmtTime, useNow } from '@/components/game';
 import { textOn } from '@/lib/theme';
 
-const PERIOD = 300; // segundos reales por periodo
 
 export function LiveIndexPage() {
   const live = useQuery({ queryKey: ['live-matches'], queryFn: getLiveMatches, refetchInterval: 10_000 });
@@ -105,13 +104,13 @@ function LiveTile({ m, home, away }: { m: Match; home?: Team; away?: Team }) {
   );
 }
 
-/** Reloj de juego: el periodo real de 5 min se muestra como 20:00 de hockey. */
-function gameClock(elapsed: number, duration: number) {
+/** Reloj de juego: cada periodo real (100 s) se muestra como 20:00 de hockey. */
+function gameClock(elapsed: number, duration: number, PERIOD: number) {
   if (elapsed >= duration) return { period: 'Final', clock: '0:00' };
   const p = Math.floor(elapsed / PERIOD);
   if (p >= 3) {
     const left = Math.max(0, duration - elapsed);
-    const s = Math.round((left / (duration - 3 * PERIOD)) * 300);
+    const s = Math.round((left / Math.max(1, duration - 3 * PERIOD)) * 300);
     return { period: 'TE', clock: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` };
   }
   const left = Math.round(((PERIOD - (elapsed - p * PERIOD)) / PERIOD) * 1200);
@@ -139,7 +138,8 @@ export function LiveMatchPage() {
   const m = match.data;
   const home = m ? byId.get(m.home_team_id) : undefined;
   const away = m ? byId.get(m.away_team_id) : undefined;
-  const duration = feed.data?.duration ?? 900;
+  const period = feed.data?.period_seconds ?? 100;
+  const duration = feed.data?.duration ?? 3 * period;
   const finished = feed.data?.status === 'finished' || m?.status === 'finished';
   const started = feed.data?.started_at ? Date.parse(feed.data.started_at) : null;
   const elapsed = finished ? duration : started ? Math.max(0, (now + offset - started) / 1000) : 0;
@@ -147,7 +147,7 @@ export function LiveMatchPage() {
   const goals = events.filter((e) => e.type === 'goal');
   const last = goals[goals.length - 1];
   const score: [number, number] = last?.data?.score ?? [0, 0];
-  const { period, clock } = gameClock(elapsed, duration);
+  const { period: periodLabel, clock } = gameClock(elapsed, duration, period);
   const shots = { home: events.filter((e) => (e.type === 'shot' || e.type === 'goal') && e.side === 'home').length, away: events.filter((e) => (e.type === 'shot' || e.type === 'goal') && e.side === 'away').length };
   const pens = { home: events.filter((e) => e.type === 'penalty' && e.side === 'home').length, away: events.filter((e) => e.type === 'penalty' && e.side === 'away').length };
 
@@ -221,7 +221,7 @@ export function LiveMatchPage() {
               <Score value={score[1]} className="text-6xl sm:text-7xl" />
             </div>
             <div className="mt-1 inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1 font-display text-lg font-bold tabular text-white">
-              <span>{period}</span>
+              <span>{periodLabel}</span>
               <span className="opacity-60">|</span>
               <span aria-label={`Reloj ${clock}`}>{clock}</span>
             </div>
@@ -344,7 +344,7 @@ function PlayByPlay({ events, home, away }: { events: TimelineEvent[]; home: Tea
             const t = e.side === 'home' ? home : e.side === 'away' ? away : undefined;
             return (
               <motion.li key={`${e.second}-${e.type}-${i}`} initial={reduce ? false : { opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-start gap-3">
-                <span className="w-12 shrink-0 pt-0.5 text-xs font-semibold tabular text-muted">{gameClock(e.second, 99999).period}</span>
+                <span className="w-12 shrink-0 pt-0.5 text-xs font-semibold tabular text-muted">{e.period === 4 ? 'TE' : e.period ? `${e.period}.º` : ''}</span>
                 {e.type === 'goal' ? (
                   <div className="flex flex-1 items-start gap-2 rounded-xl p-2" style={{ background: `${t?.primary_color}22` }}>
                     <Target size={16} className="mt-0.5 shrink-0" style={{ color: t?.primary_color }} aria-hidden />

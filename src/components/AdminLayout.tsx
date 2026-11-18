@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Suspense, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { ErrorBoundary } from './ErrorBoundary';
+import { Spinner } from './ui';
 import {
   Activity,
   Eye,
@@ -43,6 +45,7 @@ export const ADMIN_MODULES = [
 export function AdminLayout() {
   const { profile, signOut } = useAuth();
   const [open, setOpen] = useState(false);
+  const location = useLocation();
 
   const nav = (
     <nav aria-label="Módulos" className="flex flex-col gap-0.5">
@@ -103,7 +106,11 @@ export function AdminLayout() {
           </div>
         )}
         <main className="mx-auto max-w-7xl p-4 lg:p-6">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Suspense fallback={<Spinner />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
 

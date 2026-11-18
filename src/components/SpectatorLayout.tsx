@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X } from 'lucide-react';
+import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X, Heart } from 'lucide-react';
 import { Ticker } from './Ticker';
+import { ErrorBoundary } from './ErrorBoundary';
+import { Spinner } from './ui';
 import { NotificationCenter } from './Notifications';
 import { AccessibilityPanel } from './AccessibilityPanel';
 import { useAuth } from '@/lib/auth';
@@ -23,6 +25,7 @@ const MORE_TABS = [
   { to: '/estadisticas', label: 'Estadísticas', icon: BarChart3 },
   { to: '/apuestas', label: 'Apuestas', icon: Coins },
   { to: '/noticias', label: 'Noticias', icon: Newspaper },
+  { to: '/chismes', label: 'Chismes', icon: Heart },
   { to: '/mercado', label: 'Mercado y draft', icon: Repeat },
   { to: '/equipos', label: 'Equipos', icon: Users },
   { to: '/historia', label: 'Historia', icon: History },
@@ -120,7 +123,11 @@ export function SpectatorLayout() {
           id="contenido"
           tabIndex={-1}
         >
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Suspense fallback={<Spinner />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </motion.main>
       </AnimatePresence>
 
