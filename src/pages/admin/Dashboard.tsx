@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, CalendarRange, CheckCircle2, Clock, FastForward, Pause, Play, Radio, Rewind, Square, Zap } from 'lucide-react';
-import { engine, getEditions, getMatchesByIds, type CompetitionDay, type ScheduleItem } from '@/lib/engine';
+import { engine, getEditions, getMatchesByIds, type CompetitionDay, type Plan, type ScheduleItem } from '@/lib/engine';
 import { usePlayers, useTeams } from '@/lib/hooks';
 import { useA11y } from '@/lib/a11y';
 import { Badge, Button, Card, ErrorBox, SectionTitle, Spinner, Stat, cn } from '@/components/ui';
@@ -72,7 +72,87 @@ export function AdminDashboard() {
       ) : (
         <DayControl day={day} items={items} busy={busy} act={act} />
       )}
+
+      <DayQueue current={day} items={items} busy={busy} act={act} />
     </div>
+  );
+}
+
+/** Fila de días: lo que se juega ahora y lo que sigue, con cuándo arranca cada uno. */
+function DayQueue({
+  current,
+  items,
+  busy,
+  act,
+}: {
+  current: CompetitionDay | null;
+  items: ScheduleItem[];
+  busy: string | null;
+  act: (label: string, action: string, body: Record<string, unknown>, done: string) => Promise<void>;
+}) {
+  const plan = useQuery({ queryKey: ['plan'], queryFn: () => engine<Plan>('plan.get'), refetchInterval: 30_000 });
+  const days = (plan.data?.days ?? []).filter((d) => d.status !== 'closed').sort((a, b) => a.date.localeCompare(b.date));
+  if (!days.length) return null;
+  const today = new Date(Date.now() - 6 * 3600_000).toISOString().slice(0, 10);
+  const busyDay = current && (current.status === 'running' || current.status === 'paused') ? current : null;
+  // Fin estimado del día en curso: su último elemento programado.
+  const currentEnd = busyDay && items.length ? items.reduce((m, i) => (i.scheduled_at > m ? i.scheduled_at : m), items[0].scheduled_at) : null;
+  const pendingNow = items.filter((i) => i.status === 'pending' || i.status === 'running').length;
+  const firstPlanned = days.find((d) => d.status === 'planned');
+
+  return (
+    <Card className="space-y-3">
+      <h3 className="flex items-center gap-2 font-semibold">
+        <CalendarRange size={18} className="text-primary" aria-hidden /> Fila de días
+      </h3>
+      <p className="text-sm text-muted">Los días se juegan uno tras otro. Cuando termina uno, el siguiente arranca solo (si su fecha ya llegó).</p>
+      <ol className="space-y-2">
+        {days.map((d, i) => {
+          const isCurrent = busyDay?.id === d.id;
+          const comps = [...new Set(d.blocks.map((b) => b.label.split(' · ')[0]))];
+          const late = d.status === 'planned' && d.date < today;
+          const waiting = d.status === 'planned' && d.date <= today;
+          const label = isCurrent
+            ? d.status === 'paused'
+              ? 'En pausa'
+              : 'Jugándose ahora'
+            : waiting
+              ? busyDay
+                ? `En espera: arranca solo al terminar el ${fmtDate(busyDay.date).split(',')[0]}${currentEnd && d.id === firstPlanned?.id ? ` (≈ ${fmtTime(currentEnd)})` : ''}`
+                : 'Arranca solo en menos de 1 min'
+              : `Arranca solo el ${fmtDate(d.date)} a las 8:00`;
+          return (
+            <li
+              key={d.id}
+              className={cn(
+                'flex flex-wrap items-center gap-3 rounded-xl border p-3',
+                isCurrent ? 'border-live/60 bg-live/5' : waiting ? 'border-secondary/50 bg-secondary/5' : 'border-line',
+              )}
+            >
+              <span className="font-display text-2xl font-bold tabular text-muted">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 font-semibold capitalize">
+                  {fmtDate(d.date)}
+                  {isCurrent && d.status === 'running' && <LiveBadge />}
+                  {late && <Badge tone="loss">Atrasado</Badge>}
+                  {d.date === today && <Badge tone="primary">Hoy</Badge>}
+                </div>
+                <div className="text-xs text-muted">
+                  {label} · {d.blocks.length} jornadas · {d.matches.toLocaleString('es-MX')} partidos
+                  {isCurrent ? ` · faltan ${pendingNow} elementos` : ''}
+                </div>
+                {comps.length > 0 && <div className="mt-0.5 truncate text-xs text-muted">{comps.join(' · ')}</div>}
+              </div>
+              {d.status === 'planned' && !busyDay && waiting && (
+                <Button size="sm" onClick={() => act('start-now', 'day.start', { dayId: d.id, mode: 'now' }, 'Día iniciado')} disabled={busy !== null}>
+                  <Play size={14} /> Arrancar ya
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </Card>
   );
 }
 
