@@ -1,17 +1,41 @@
 // Llamadas al motor del servidor (Edge Function «engine») y lecturas del juego.
-import { DEMO_MODE, db } from './supabase';
+import { DEMO_MODE, db, freshSession } from './supabase';
+
+async function callEngine(action: string, body: Record<string, unknown>, token?: string) {
+  return db().functions.invoke('engine', { body: { action, ...body }, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) });
+}
+
+async function errorText(error: unknown): Promise<{ status: number; message: string }> {
+  const ctx = (error as { context?: Response }).context;
+  const status = ctx?.status ?? 0;
+  if (ctx && typeof ctx.json === 'function') {
+    const j = await ctx.json().catch(() => null);
+    if (j?.error) return { status, message: String(j.error) };
+  }
+  return { status, message: (error as Error).message };
+}
 
 export async function engine<T = unknown>(action: string, body: Record<string, unknown> = {}): Promise<T> {
   if (DEMO_MODE) throw new Error('Conecta Supabase para usar esta función');
-  const { data, error } = await db().functions.invoke('engine', { body: { action, ...body } });
+  // Siempre con un token vigente (en iPad la sesión puede vencer en segundo plano).
+  let session = await freshSession();
+  let { data, error } = await callEngine(action, body, session?.access_token);
   if (error) {
-    // El cuerpo del error trae el mensaje en español del servidor.
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === 'function') {
-      const j = await ctx.json().catch(() => null);
-      if (j?.error) throw new Error(j.error);
+    let e = await errorText(error);
+    if (e.status === 401) {
+      // Token vencido o revocado: se renueva una vez y se reintenta.
+      const r = await db().auth.refreshSession();
+      session = r.data.session;
+      if (!session) {
+        await db().auth.signOut().catch(() => undefined);
+        window.location.assign('/login');
+        throw new Error('Tu sesión expiró. Vuelve a entrar con tu nombre y código.');
+      }
+      ({ data, error } = await callEngine(action, body, session.access_token));
+      if (!error) return data as T;
+      e = await errorText(error);
     }
-    throw new Error(error.message);
+    throw new Error(e.message);
   }
   if (data && typeof data === 'object' && 'error' in data) throw new Error(String((data as { error: unknown }).error));
   return data as T;

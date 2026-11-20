@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     if (!auth) return json({ error: 'Sin sesión' }, 401);
     const uc = userClient(auth);
     const { data: u } = await uc.auth.getUser();
-    if (!u.user) return json({ error: 'Sesión inválida' }, 401);
+    if (!u.user) return json({ error: 'Tu sesión expiró. Vuelve a entrar.' }, 401);
 
     if (ADMIN.has(action)) {
       const { data: isAdmin } = await uc.rpc('is_admin');
