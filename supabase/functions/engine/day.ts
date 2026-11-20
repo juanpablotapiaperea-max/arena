@@ -353,25 +353,40 @@ async function postpone(db: DB, item: ScheduleItem, minutes: number) {
   await q(db.from('schedule_items').update({ scheduled_at: new Date(Date.now() + minutes * MIN).toISOString() }).eq('id', item.id));
 }
 
-async function runBurst(db: DB, item: ScheduleItem): Promise<void> {
+const BURST_CAP = 12;
+
+async function runBurst(db: DB, item: ScheduleItem): Promise<number> {
   const ms = await ensureUnit(db, item.edition_id!, item.unit_index!);
-  if (!ms.length) return postpone(db, item, 5);
+  if (!ms.length) {
+    await postpone(db, item, 2);
+    return 0;
+  }
   const pending = ms.filter((m) => m.status === 'scheduled' && !m.is_main_event);
   if (!pending.length) {
     await q(db.from('schedule_items').update({ status: 'done', result: { matches: 0 } }).eq('id', item.id));
-    return;
+    return 0;
   }
   // La última ráfaga del bloque se lleva todo lo que quede de la jornada.
   const others = await q<{ id: string }[]>(
     db.from('schedule_items').select('id').eq('block_id', item.block_id).eq('kind', 'burst').eq('status', 'pending').neq('id', item.id),
   );
-  const pick = others.length ? pending.slice(0, item.burst_size ?? 4) : pending;
+  const want = others.length ? Math.min(pending.length, item.burst_size ?? 4) : pending.length;
+  // El servidor da muy poco procesador por vuelta: se simulan a lo más BURST_CAP
+  // partidos y, si la ráfaga es más grande, el resto sale en la siguiente vuelta (15 s).
+  const pick = pending.slice(0, Math.min(want, BURST_CAP));
+  const leftover = want - pick.length;
   const e = await q<EditionRow>(db.from('editions').select('*').eq('id', item.edition_id).single());
   const teamIds = pick.flatMap((m) => [m.home_team_id, m.away_team_id]);
   const ctx = await loadContext(db, teamIds);
   await countGamesToday(db, ctx.gamesToday, item.day_id, teamIds);
   const payloads: SimPayload[] = [];
   for (const m of pick) payloads.push((await simulate(ctx, m, e, false)).payload);
+  if (leftover > 0) {
+    // Se guarda lo jugado y la ráfaga sigue pendiente con lo que falta.
+    await q(db.from('schedule_items').update({ burst_size: leftover, scheduled_at: new Date().toISOString() }).eq('id', item.id));
+    await commitResults(db, payloads);
+    return pick.length;
+  }
   await commitResults(db, payloads);
   // Si quedan partidos normales de la unidad sin ráfaga asignada, este bloque los absorbe después.
   await q(
@@ -381,6 +396,7 @@ async function runBurst(db: DB, item: ScheduleItem): Promise<void> {
       result: { matches: pick.length, scores: payloads.map((p) => ({ id: p.matchId, h: p.homeTeamId, a: p.awayTeamId, hs: p.homeScore, as: p.awayScore, ot: p.overtime })) },
     }).eq('id', item.id),
   );
+  return pick.length;
 }
 
 /** Partidos que ya jugó hoy cada equipo (para el cansancio), solo de los equipos que juegan. */
@@ -405,8 +421,9 @@ async function startLive(db: DB, item: ScheduleItem): Promise<void> {
     const second = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('kind', 'event').in('status', ['pending', 'running']).eq('result->>track', '2').limit(1));
     if (live.length >= (second.length ? 2 : 1)) return postpone(db, item, 1);
   }
-  // Nunca antes que una ronda anterior de la misma competición (ida antes que vuelta).
-  if (item.edition_id != null && item.unit_index != null) {
+  // Rondas de eliminación: nunca antes que la ronda anterior de su competición
+  // (ida antes que vuelta). Los clásicos de liga no esperan.
+  if (!item.match_id && item.edition_id != null && item.unit_index != null) {
     const earlier = await q<{ id: string }[]>(
       db.from('schedule_items').select('id').eq('kind', 'event').eq('edition_id', item.edition_id).lt('unit_index', item.unit_index).in('status', ['pending', 'running']).limit(1),
     );
@@ -428,6 +445,10 @@ async function startLive(db: DB, item: ScheduleItem): Promise<void> {
     await q(db.from('schedule_items').update({ status: 'done', match_id: matchId }).eq('id', item.id));
     return;
   }
+  // Dos vivos a la vez solo con equipos distintos: un equipo no juega dos partidos al mismo tiempo.
+  const onAir = await q<{ home_team_id: string; away_team_id: string }[]>(db.from('matches').select('home_team_id,away_team_id').eq('status', 'live'));
+  const busy = new Set(onAir.flatMap((x) => [x.home_team_id, x.away_team_id]));
+  if (busy.has(m.home_team_id) || busy.has(m.away_team_id)) return postpone(db, item, 1);
   const e = await q<EditionRow>(db.from('editions').select('*').eq('id', m.edition_id).single());
   const ctx = await loadContext(db, [m.home_team_id, m.away_team_id]);
   await countGamesToday(db, ctx.gamesToday, item.day_id, [m.home_team_id, m.away_team_id]);
@@ -500,7 +521,7 @@ async function autoStart(db: DB): Promise<string | null> {
 export async function tick(db: DB, budgetMs = 20_000) {
   const t = Date.now();
   // Una sola ejecución a la vez: el motor despierta cada 15 s.
-  const { data: got } = await db.rpc('acquire_tick_lease', { p_seconds: 75 });
+  const { data: got } = await db.rpc('acquire_tick_lease', { p_seconds: 45 });
   if (got === false) return { ran: [], busy: true, ms: 0 };
   try {
     return await tickInner(db, budgetMs, t);
@@ -530,7 +551,8 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
 
     // Pocas tareas por vuelta: el servidor corta las ejecuciones que gastan mucho
     // procesador; el motor despierta cada 15 s, así que no se pierde ritmo.
-    for (let guard = 0; guard < 4 && Date.now() - t < budgetMs; guard++) {
+    let simulated = 0;
+    for (let guard = 0; guard < 6 && simulated < BURST_CAP && Date.now() - t < budgetMs; guard++) {
       const due = await q<ScheduleItem[]>(
         db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').lte('scheduled_at', new Date().toISOString()).order('scheduled_at').limit(1),
       );
@@ -538,7 +560,7 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
       if (!item) break;
       if (item.kind === 'burst' || item.kind === 'event') {
         try {
-          if (item.kind === 'burst') await runBurst(db, item);
+          if (item.kind === 'burst') simulated += await runBurst(db, item);
           else await startLive(db, item);
         } catch (e) {
           // Un elemento con problemas no frena la fila: se reintenta en 2 minutos.
