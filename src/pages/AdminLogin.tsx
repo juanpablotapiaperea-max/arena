@@ -78,11 +78,11 @@ export function AdminLoginPage() {
       {!session ? (
         <form onSubmit={submitPassword} className="card mt-10 space-y-4 p-5">
           <div>
-            <Label htmlFor="email">Correo</Label>
-            <Input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Label htmlFor="email">Usuario o correo</Label>
+            <Input id="email" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="Tu nombre de usuario" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           <div>
-            <Label htmlFor="password">Contraseña</Label>
+            <Label htmlFor="password">Contraseña o código</Label>
             <Input
               id="password"
               type="password"

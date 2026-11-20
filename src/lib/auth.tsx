@@ -84,8 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signInAdmin(email, password) {
         if (!supabase) throw new Error('Supabase no está configurado');
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw new Error('Correo o contraseña incorrectos');
+        // Acepta correo o nombre de usuario (los usuarios entran con nombre y código).
+        const login = email.trim();
+        const { error } = await supabase.auth.signInWithPassword({ email: login.includes('@') ? login : emailForName(login), password: password.trim() });
+        if (error) throw new Error('Usuario o contraseña incorrectos');
       },
       enterDemo(role) {
         setDemoRole(role);
