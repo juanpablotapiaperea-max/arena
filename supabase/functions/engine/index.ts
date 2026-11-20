@@ -11,6 +11,7 @@ import { autoCloseWindow, closeWindow, forceTransfer, marketStatus, openWindow, 
 import { advanceDraft, draftState, ownerPick, prepareDraft, startDraft } from './draft.ts';
 import { closePreview, closeSeason } from './close.ts';
 import { maybeGossip, newsGossip } from './news.ts';
+import { finishSeasonBy } from './speed.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -40,6 +41,7 @@ const ADMIN = new Set([
   'day.compact',
   'match.event',
   'press.gossip',
+  'season.finishBy',
   'item.shift',
   'item.cancel',
   'item.force',
@@ -141,6 +143,8 @@ Deno.serve(async (req) => {
       case 'day.compact':
         await compactDay(db, body.dayId);
         return json(await dayStatus(db, body.dayId));
+      case 'season.finishBy':
+        return json(await finishSeasonBy(db, String(body.endDate ?? ''), Number(body.endHour ?? 22)));
       case 'press.gossip':
         return json({ made: await newsGossip(db, Math.min(20, Math.max(1, Number(body.count ?? 5)))) });
       case 'match.event':

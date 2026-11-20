@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X, Heart } from 'lucide-react';
+import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X, Heart, MonitorPlay } from 'lucide-react';
 import { Ticker } from './Ticker';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './ui';
@@ -22,6 +22,7 @@ const MAIN_TABS: { to: string; label: string; icon: typeof CalendarDays; end?: b
 ];
 
 const MORE_TABS = [
+  { to: '/board', label: 'Board en vivo', icon: MonitorPlay },
   { to: '/estadisticas', label: 'Estadísticas', icon: BarChart3 },
   { to: '/apuestas', label: 'Apuestas', icon: Coins },
   { to: '/noticias', label: 'Noticias', icon: Newspaper },

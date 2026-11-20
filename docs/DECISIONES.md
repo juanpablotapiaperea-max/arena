@@ -95,3 +95,9 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 
 ### Accesibilidad
 - Tamaño de texto, alto contraste, movimiento reducido, fuente de alta legibilidad (Atkinson Hyperlegible), paleta segura para daltonismo, enlaces subrayados, anuncios para lector de pantalla, sonidos y vibración. Cada persona elige en su perfil o con el botón ♿; respeta también las preferencias del sistema.
+
+### Ritmo rápido y fin de temporada
+- El motor despierta cada 15 segundos (pg_cron) con un candado (`acquire_tick_lease`) para que dos ejecuciones nunca procesen lo mismo.
+- Ráfagas cada minuto; su tamaño crece para que todo termine en ~5 h. Vivos de 5 min con 30 s entre uno y otro; se programan tantos como quepan mientras corren las ráfagas.
+- «Indicar fin de temporada» (Planificador): reanuda el día en pausa, rehace los días planeados y reparte todo lo que falta hasta la fecha elegida, con hora límite por día. Los días arrancan solos (si uno se quedó sin jugar, se juega en cuanto se pueda).
+- Board: tablas de varias ligas recalculadas en el navegador con cada resultado recibido en tiempo real.

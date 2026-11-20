@@ -85,6 +85,8 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   if (!blocks.length) throw new AppError('El día no tiene jornadas planeadas');
 
   await q(db.rpc('begin_competition_day'));
+  // Si un arranque anterior se interrumpió a la mitad, se empieza limpio.
+  await q(db.from('schedule_items').delete().eq('day_id', dayId));
   const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
   const editionIds = [...new Set(blocks.map((b) => b.edition_id))];
   const eds = await q<EditionRow[]>(db.from('editions').select('*').in('id', editionIds));
@@ -124,7 +126,17 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // Mínimo de eventos en vivo por día: si los derbis que pasaron el umbral no
   // alcanzan, se completan con los mejores partidos, repartidos entre todas las
   // jornadas del día para que siempre haya algo en vivo y sin huecos largos.
-  const minLives = Math.min(cal.minLiveEventsPerDay ?? 8, cal.maxLiveEventsPerDay);
+  // Ventana del día: desde el arranque hasta la hora límite (México).
+  const t0 = windowStart(day, mode);
+  const endHour = (cal as { dayEndHour?: number }).dayEndHour ?? 14;
+  const deadline = Date.parse(`${day.date}T${String(Math.floor(endHour)).padStart(2, '0')}:00:00${MX_OFFSET}`);
+  const windowMin = Math.max(60, Math.floor((deadline - t0) / MIN));
+  // Duración objetivo de las ráfagas: lo antes posible, sin pasar de la ventana.
+  const targetMin = Math.min(windowMin, (cal as { targetDayMinutes?: number }).targetDayMinutes ?? 300);
+  const liveCap = Math.max(1, Math.floor(targetMin / cal.liveEventMinutes));
+  const maxLives = Math.min(cal.maxLiveEventsPerDay, Math.max(liveCap, lives.length));
+  // Vivos para cubrir el día: uno tras otro mientras corren las ráfagas.
+  const minLives = Math.min(maxLives, Math.max(cal.minLiveEventsPerDay ?? 8, liveCap));
   if (lives.length < minLives && regular.length) {
     const chosen = new Set(lives.map((l) => l.matchId));
     const byBlock = new Map<string, { m: MatchDb; d: { score: number; name: string } }[]>();
@@ -157,8 +169,8 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
 
   // Máximo de eventos en vivo: los de menor interés pasan a ráfagas.
   lives.sort((a, b) => b.score - a.score);
-  const kept = lives.slice(0, cal.maxLiveEventsPerDay);
-  for (const dropped of lives.slice(cal.maxLiveEventsPerDay)) {
+  const kept = lives.slice(0, maxLives);
+  for (const dropped of lives.slice(maxLives)) {
     const bu = burstUnits.find((x) => x.block.id === dropped.block.id);
     if (bu) bu.count++;
     else burstUnits.push({ block: dropped.block, unit: dropped.unit, count: 1 });
@@ -166,20 +178,16 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // Orden: por bloque del plan; las finales al último horario.
   kept.sort((a, b) => Number(a.final) - Number(b.final) || a.block.sort_order - b.block.sort_order || a.slot - b.slot);
 
-  const t0 = windowStart(day, mode);
-  const windowMin = 6 * 60;
   const items: Record<string, unknown>[] = [];
   const liveMinutes = cal.liveEventMinutes;
   const keptIds = new Set(kept);
 
-  // Tamaño de ráfaga: desde 3 partidos; más si no cabe en la ventana de 6 horas.
-  const totalNormal = burstUnits.reduce((s, b) => s + b.count, 0);
-  const slots = Math.floor(windowMin / cal.burstEveryMinutes);
-  // El menor tamaño de ráfaga (desde 3) con el que todo cabe en la ventana.
+  // Tamaño de ráfaga: el menor (desde burstMin) con el que todo termina en la
+  // duración objetivo; con muchos partidos, las ráfagas crecen (resultados rápidos).
+  const slots = Math.max(1, Math.floor(targetMin / cal.burstEveryMinutes) - 2);
   let size = cal.burstMin;
   const burstsFor = (n: number) => burstUnits.reduce((acc, b) => acc + Math.ceil(Math.max(0, b.count) / n), 0);
-  while (size < 50 && burstsFor(size) > slots - 2) size++;
-  void totalNormal;
+  while (size < 60 && burstsFor(size) > slots) size++;
 
   // Se recorre el plan en orden: las ráfagas avanzan cada 5 minutos y los
   // eventos en vivo van uno tras otro; una ronda en vivo arranca cuando ya
@@ -263,12 +271,23 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
       await q(db.from('matches').update({ scheduled_at: it.scheduled_at, is_main_event: true, event_name: l.name, derby_score: derbies.get(l.matchId)?.score ?? null }).eq('id', l.matchId));
     }
   }
+  // Hora de cada partido de ráfaga, en lote (miles de partidos en pocas llamadas).
+  const keptMatch = new Set(kept.map((l) => l.matchId));
+  const timeIds: string[] = [];
+  const timeAt: string[] = [];
+  const usedByBlock = new Map<string, number>();
   for (const it of items.filter((x) => x.kind === 'burst')) {
-    const ms = unitMatches(blocks.find((b) => b.id === it.block_id)!).filter((m) => !kept.some((l) => l.matchId === m.id));
-    // reparto aproximado: los partidos de la unidad en orden
-    const before = items.filter((x) => x.kind === 'burst' && x.block_id === it.block_id && (x.sort_order as number) < (it.sort_order as number)).reduce((s, x) => s + (x.burst_size as number), 0);
-    const ids = ms.slice(before, before + (it.burst_size as number)).map((m) => m.id);
-    if (ids.length) await q(db.from('matches').update({ scheduled_at: it.scheduled_at }).in('id', ids));
+    const b = blocks.find((x) => x.id === it.block_id)!;
+    const ms = unitMatches(b).filter((m) => !keptMatch.has(m.id));
+    const before = usedByBlock.get(b.id) ?? 0;
+    usedByBlock.set(b.id, before + (it.burst_size as number));
+    for (const m of ms.slice(before, before + (it.burst_size as number))) {
+      timeIds.push(m.id);
+      timeAt.push(it.scheduled_at as string);
+    }
+  }
+  for (let i = 0; i < timeIds.length; i += 1000) {
+    await q(db.rpc('set_match_times', { p_ids: timeIds.slice(i, i + 1000), p_times: timeAt.slice(i, i + 1000) }));
   }
   await q(db.from('competition_days').update({ status: 'running', mode, published: true, started_at: new Date().toISOString() }).eq('id', dayId));
   await q(
@@ -401,7 +420,8 @@ async function autoStart(db: DB): Promise<string | null> {
   const nowMx = new Date(Date.now() - 6 * 3600_000);
   const today = nowMx.toISOString().slice(0, 10);
   if (nowMx.getUTCHours() < 8) return null;
-  const day = (await q<{ id: string }[]>(db.from('competition_days').select('id').eq('date', today).eq('status', 'planned')))[0];
+  // El más antiguo pendiente: si un día planeado se quedó sin jugar, se juega ahora.
+  const day = (await q<{ id: string }[]>(db.from('competition_days').select('id').lte('date', today).eq('status', 'planned').order('date').limit(1)))[0];
   if (!day) return null;
   const blocks = await q<{ id: string }[]>(db.from('plan_blocks').select('id').eq('day_id', day.id).limit(1));
   if (!blocks.length) return null;
@@ -409,9 +429,23 @@ async function autoStart(db: DB): Promise<string | null> {
   return day.id;
 }
 
-export async function tick(db: DB, budgetMs = 40_000) {
+export async function tick(db: DB, budgetMs = 42_000) {
   const t = Date.now();
-  const started = await autoStart(db).catch(() => null);
+  // Una sola ejecución a la vez: el motor despierta cada 15 s.
+  const { data: got } = await db.rpc('acquire_tick_lease', { p_seconds: 120 });
+  if (got === false) return { ran: [], busy: true, ms: 0 };
+  try {
+    return await tickInner(db, budgetMs, t);
+  } finally {
+    await db.rpc('release_tick_lease');
+  }
+}
+
+async function tickInner(db: DB, budgetMs: number, t: number) {
+  const started = await autoStart(db).catch((e) => {
+    console.error('autoStart', e);
+    return null;
+  });
   const days = await q<DayRow[]>(db.from('competition_days').select('*').eq('status', 'running'));
   const log: string[] = [];
   for (const day of days) {
@@ -419,7 +453,7 @@ export async function tick(db: DB, budgetMs = 40_000) {
     const running = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'running'));
     for (const it of running) await finishLive(db, it);
 
-    for (let guard = 0; guard < 30 && Date.now() - t < budgetMs; guard++) {
+    for (let guard = 0; guard < 400 && Date.now() - t < budgetMs; guard++) {
       const due = await q<ScheduleItem[]>(
         db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').lte('scheduled_at', new Date().toISOString()).order('scheduled_at').limit(1),
       );

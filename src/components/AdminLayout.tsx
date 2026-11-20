@@ -5,6 +5,7 @@ import { Spinner } from './ui';
 import {
   Activity,
   Eye,
+  MonitorPlay,
   BookLock,
   CalendarRange,
   Coins,
@@ -73,6 +74,14 @@ export function AdminLayout() {
       >
         <Eye size={17} aria-hidden />
         Ver como espectador
+      </Link>
+      <Link
+        to="/board"
+        onClick={() => setOpen(false)}
+        className="focus-ring mt-1 flex min-h-10 items-center gap-2.5 rounded-lg border border-line px-3 text-sm font-semibold text-primary hover:bg-surface-2"
+      >
+        <MonitorPlay size={17} aria-hidden />
+        Board en vivo
       </Link>
     </nav>
   );
