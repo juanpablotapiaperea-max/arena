@@ -405,6 +405,13 @@ async function startLive(db: DB, item: ScheduleItem): Promise<void> {
     const second = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('kind', 'event').in('status', ['pending', 'running']).eq('result->>track', '2').limit(1));
     if (live.length >= (second.length ? 2 : 1)) return postpone(db, item, 1);
   }
+  // Nunca antes que una ronda anterior de la misma competición (ida antes que vuelta).
+  if (item.edition_id != null && item.unit_index != null) {
+    const earlier = await q<{ id: string }[]>(
+      db.from('schedule_items').select('id').eq('kind', 'event').eq('edition_id', item.edition_id).lt('unit_index', item.unit_index).in('status', ['pending', 'running']).limit(1),
+    );
+    if (earlier.length) return postpone(db, item, 1);
+  }
   let matchId = item.match_id;
   if (!matchId) {
     const ms = await ensureUnit(db, item.edition_id!, item.unit_index!);
