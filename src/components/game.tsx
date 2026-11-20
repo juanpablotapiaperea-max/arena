@@ -5,7 +5,9 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowDown, ArrowUp, Minus, Radio } from 'lucide-react';
 import type { Team } from '@/lib/types';
-import type { Match, Standing } from '@/lib/engine';
+import { useQuery } from '@tanstack/react-query';
+import { getEditions, type Match, type Standing } from '@/lib/engine';
+import { compColor } from '@/lib/compColors';
 import { Crest } from './Crest';
 import { cn } from './ui';
 
@@ -305,5 +307,34 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
       <h3 className="font-display text-xl font-bold uppercase">{title}</h3>
       {children && <div className="max-w-md text-sm text-muted">{children}</div>}
     </div>
+  );
+}
+
+/** Torneo y fase/jornada de un partido: «OHL · Jornada 52», «Primera División · Cuartos de final · ida». */
+export function useMatchContext(m?: Pick<Match, 'edition_id' | 'unit_index' | 'group_label' | 'stage'> | null) {
+  const eds = useQuery({ queryKey: ['editions'], queryFn: getEditions, staleTime: 60_000 });
+  if (!m) return null;
+  const e = eds.data?.find((x) => x.id === m.edition_id);
+  if (!e) return null;
+  const unit = e.state?.units?.find((u) => u.index === m.unit_index);
+  const phase = unit?.label ?? (m.stage === 'playoff' ? 'Eliminatoria' : `Jornada ${m.unit_index + 1}`);
+  return {
+    competition: e.name.split(' · ')[0],
+    phase: m.group_label && m.stage !== 'playoff' ? `${phase} · Grupo ${m.group_label}` : phase,
+    color: compColor(e.config.competitionKey),
+    playoff: m.stage === 'playoff',
+  };
+}
+
+export function MatchContextBadge({ m, className }: { m?: Pick<Match, 'edition_id' | 'unit_index' | 'group_label' | 'stage'> | null; className?: string }) {
+  const c = useMatchContext(m);
+  if (!c) return null;
+  return (
+    <span className={cn('inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider', className)} style={{ background: `${c.color}33`, color: c.color }}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} aria-hidden />
+      <span className="truncate">
+        {c.competition} · {c.phase}
+      </span>
+    </span>
   );
 }

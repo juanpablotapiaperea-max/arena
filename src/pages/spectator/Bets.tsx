@@ -10,7 +10,7 @@ import { useA11y, playCue } from '@/lib/a11y';
 import { db } from '@/lib/supabase';
 import { engine, getBettorBoard, getCurrentDay, getDayItems, getEditions, getMatchesByIds, getMyBets, type Bet, type Match, type Offer } from '@/lib/engine';
 import { Badge, Button, ErrorBox, Input, SectionTitle, Spinner, cn } from '@/components/ui';
-import { Countdown, EmptyState, TeamName, fmtTime } from '@/components/game';
+import { Countdown, EmptyState, MatchContextBadge, TeamName, fmtTime } from '@/components/game';
 import { PrivateLeagues } from '@/components/Leagues';
 
 const MARKET_TITLE: Record<string, string> = {
@@ -98,7 +98,10 @@ function MatchMarkets({ slip, toggle }: { slip: { offer: Offer }[]; toggle: (o: 
         <div key={m.id} className={cn('card p-0', m.is_main_event && 'border-secondary/50')}>
           <button onClick={() => setOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} className="focus-ring flex w-full items-center gap-3 p-3 text-left">
             <div className="min-w-0 flex-1 space-y-1">
-              {m.event_name && <div className="text-[11px] font-bold uppercase tracking-wider text-secondary">{m.event_name}</div>}
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <MatchContextBadge m={m} className="py-0.5 text-[10px]" />
+                {m.event_name && !/· (Cuartos|Semifinales|Final|Octavos|Ronda)/.test(m.event_name) && <span className="text-[11px] font-bold uppercase tracking-wider text-secondary">{m.event_name}</span>}
+              </div>
               <div>
                 <TeamName team={byId.get(m.home_team_id)} size={20} link={false} />
               </div>

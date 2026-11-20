@@ -28,7 +28,7 @@ import {
 import type { Team } from '@/lib/types';
 import { Crest } from '@/components/Crest';
 import { Badge, Button, SectionTitle, Spinner, cn } from '@/components/ui';
-import { Countdown, EmptyState, LiveBadge, Score, fmtTime, useNow } from '@/components/game';
+import { Countdown, EmptyState, LiveBadge, MatchContextBadge, Score, fmtTime, useNow } from '@/components/game';
 import { textOn } from '@/lib/theme';
 
 
@@ -95,6 +95,9 @@ function LiveTile({ m, home, away }: { m: Match; home?: Team; away?: Team }) {
           <LiveBadge />
           <div className="mt-1 truncate font-display text-lg font-bold uppercase">
             {home?.short_name} vs {away?.short_name}
+          </div>
+          <div className="mt-1">
+            <MatchContextBadge m={m} />
           </div>
           <div className="truncate text-xs text-muted">{m.event_name}</div>
         </div>
@@ -215,8 +218,11 @@ export function LiveMatchPage() {
         className="relative overflow-hidden rounded-3xl border border-line"
         style={{ background: `linear-gradient(115deg, ${home.primary_color} 0%, ${home.primary_color}aa 30%, rgb(var(--surface)) 50%, ${away.primary_color}aa 70%, ${away.primary_color} 100%)` }}
       >
-        <div className="flex items-center justify-between gap-2 bg-black/30 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white">
-          <span className="truncate">{m.event_name}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-black/40 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white">
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
+            <MatchContextBadge m={m} className="bg-black/50" />
+            {m.event_name && !/· (Cuartos|Semifinales|Final|Octavos|Ronda)/.test(m.event_name) && <span className="truncate">{m.event_name}</span>}
+          </span>
           {finished ? <span>{m.overtime ? 'Final · tiempo extra' : 'Final'}</span> : <LiveBadge />}
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-5 sm:px-8">

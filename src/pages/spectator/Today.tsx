@@ -12,7 +12,7 @@ import { useA11y } from '@/lib/a11y';
 import { db } from '@/lib/supabase';
 import { getCurrentDay, getDayItems, getLiveMatches, getNews, type ScheduleItem } from '@/lib/engine';
 import { Badge, SectionTitle, Spinner, cn } from '@/components/ui';
-import { Countdown, EmptyState, LiveBadge, fmtDate, fmtTime, TeamName } from '@/components/game';
+import { Countdown, EmptyState, LiveBadge, fmtDate, fmtTime, TeamName, MatchContextBadge } from '@/components/game';
 import { Crest } from '@/components/Crest';
 
 export function TodayPage() {
@@ -106,8 +106,11 @@ export function TodayPage() {
                 className="focus-ring relative block overflow-hidden rounded-3xl border border-live/60 p-4"
                 style={{ background: `linear-gradient(110deg, ${h?.primary_color}55, transparent 45%, transparent 55%, ${a?.primary_color}55)` }}
               >
-                <div className="mb-2 flex items-center justify-between">
-                  <LiveBadge />
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <LiveBadge />
+                    <MatchContextBadge m={m} />
+                  </span>
                   <span className="text-xs font-semibold uppercase tracking-wider">{m.event_name}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
