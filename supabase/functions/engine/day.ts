@@ -766,3 +766,95 @@ export async function setMatchEvent(db: DB, matchId: string, on: boolean, name?:
   }
   return { scheduled: null };
 }
+
+/**
+ * Reacomoda todos los vivos pendientes de los días en curso:
+ * 1) clásicos de liga (la temporada regular debe terminar antes de su liguilla),
+ * 2) eliminatorias ronda por ronda (cada ronda espera a la anterior de su torneo),
+ * 3) finales al final, una sola a la vez.
+ * Usa dos pistas solo si con una no se llega a la hora de fin.
+ */
+export async function resequenceLives(db: DB) {
+  const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
+  const days = await q<{ id: string }[]>(db.from('competition_days').select('id').in('status', ['running', 'paused']));
+  if (!days.length) return { items: 0 };
+  const dayIds = days.map((d) => d.id);
+  const items = await q<ScheduleItem[]>(db.from('schedule_items').select('*').in('day_id', dayIds).eq('kind', 'event').in('status', ['pending', 'running']));
+  const matchIds = items.map((i) => i.match_id).filter(Boolean) as string[];
+  const ms = matchIds.length ? await q<{ id: string; stage: string; started_at: string | null }[]>(db.from('matches').select('id,stage,started_at').in('id', matchIds)) : [];
+  const stage = new Map(ms.map((m) => [m.id, m]));
+  const L = cal.liveEventMinutes * MIN;
+  const now = Date.now();
+
+  const running = items.filter((i) => i.status === 'running');
+  const pending = items.filter((i) => i.status === 'pending');
+  const isFinal = (i: ScheduleItem) => /· Final$/.test(i.label ?? '');
+  const isMain = (i: ScheduleItem) => !i.match_id || stage.get(i.match_id)?.stage === 'playoff';
+  const derbies = pending.filter((i) => !isMain(i)).sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+  const rounds = pending.filter((i) => isMain(i) && !isFinal(i)).sort((a, b) => (a.unit_index ?? 0) - (b.unit_index ?? 0) || a.sort_order - b.sort_order);
+  const finals = pending.filter(isFinal);
+
+  const deadline = dayDeadline(new Date(now - 6 * 3600_000).toISOString().slice(0, 10), cal);
+  const tight = (derbies.length + rounds.length) * L + finals.length * L > deadline - now;
+  // Pistas: libres cuando termine lo que ya está en vivo.
+  const tracks: number[] = [];
+  for (const r of running) {
+    const st = r.match_id ? Date.parse(stage.get(r.match_id)?.started_at ?? r.scheduled_at) : now;
+    tracks.push(st + L);
+  }
+  while (tracks.length < (tight ? 2 : 1)) tracks.push(now + 0.25 * MIN);
+  if (tracks.length > (tight ? 2 : 1)) tracks.sort((a, b) => a - b);
+  const nTracks = tight ? 2 : 1;
+
+  const editionEnd = new Map<string, number>(); // fin de lo ya asignado por torneo
+  const unitEnd = new Map<string, number>(); // `${edition}|${unit}` -> fin
+  const updates: { id: string; at: number; track: number }[] = [];
+  const place = (it: ScheduleItem, notBefore: number) => {
+    let t = 0;
+    for (let i = 1; i < nTracks; i++) if (tracks[i] < tracks[t]) t = i;
+    const at = Math.max(tracks[t], notBefore);
+    tracks[t] = at + L;
+    updates.push({ id: it.id, at, track: t });
+    const e = it.edition_id ?? '';
+    editionEnd.set(e, Math.max(editionEnd.get(e) ?? 0, at + L));
+    const k = `${e}|${it.unit_index}`;
+    unitEnd.set(k, Math.max(unitEnd.get(k) ?? 0, at + L));
+  };
+  for (const it of derbies) place(it, now);
+  // Lo ya en vivo cuenta para su torneo.
+  for (const r of running) {
+    const e = r.edition_id ?? '';
+    const end = (r.match_id ? Date.parse(stage.get(r.match_id)?.started_at ?? r.scheduled_at) : now) + L;
+    editionEnd.set(e, Math.max(editionEnd.get(e) ?? 0, end));
+  }
+  for (const it of rounds) {
+    const e = it.edition_id ?? '';
+    // Espera a todo lo anterior de su torneo (clásicos y rondas previas), no a su propia ronda.
+    let nb = now;
+    for (const [k, end] of unitEnd) {
+      const [ke, ku] = k.split('|');
+      if (ke === e && Number(ku) < (it.unit_index ?? 0)) nb = Math.max(nb, end);
+    }
+    for (const d of derbies) if (d.edition_id === e) nb = Math.max(nb, unitEnd.get(`${e}|${d.unit_index}`) ?? 0);
+    place(it, nb);
+  }
+  // Finales: una tras otra, al final de todo.
+  let fAt = Math.max(...tracks, ...[...editionEnd.values()]);
+  for (const it of finals.sort((a, b) => (a.unit_index ?? 0) - (b.unit_index ?? 0))) {
+    updates.push({ id: it.id, at: fAt, track: 0 });
+    fAt += L;
+  }
+  for (const u of updates) {
+    await q(db.from('schedule_items').update({ scheduled_at: new Date(u.at).toISOString(), result: u.track > 0 ? { track: 2 } : null }).eq('id', u.id));
+  }
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const ids = updates.map((u) => byId.get(u.id)?.match_id).filter(Boolean) as string[];
+  const times = updates.filter((u) => byId.get(u.id)?.match_id).map((u) => new Date(u.at).toISOString());
+  if (ids.length) await q(db.rpc('set_match_times', { p_ids: ids, p_times: times }));
+  // Cierre de cada día después de su último vivo.
+  for (const d of dayIds) {
+    const last = Math.max(now, ...updates.filter((u) => byId.get(u.id)?.day_id === d).map((u) => u.at + L));
+    await q(db.from('schedule_items').update({ scheduled_at: new Date(last + MIN).toISOString() }).eq('day_id', d).eq('kind', 'summary').eq('status', 'pending'));
+  }
+  return { items: updates.length, tracks: nTracks, endsAt: new Date(fAt).toISOString() };
+}

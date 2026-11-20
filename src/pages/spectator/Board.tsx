@@ -12,7 +12,7 @@ import { useTeams } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth';
 import type { Team } from '@/lib/types';
 import { Crest } from '@/components/Crest';
-import { EmptyState } from '@/components/game';
+import { EmptyState, ZoneLegend, zoneOf } from '@/components/game';
 import { Spinner, cn } from '@/components/ui';
 
 const TABLE_FORMATS = new Set(['league', 'groups_knockout', 'swiss']);
@@ -304,16 +304,16 @@ function LeagueBoard({ e, matches, teams, rowsLimit, favs }: { e: Edition; match
                   {(rowsLimit ? t.rows.slice(0, rowsLimit) : t.rows).map((r: StandingRow, i) => {
                     const team = teams.get(r.teamId);
                     const mv = moves.get(`${t.group}|${r.teamId}`);
-                    const zone =
-                      playoffTeams && i < playoffTeams ? 'border-l-primary' : promoted && i < promoted ? 'border-l-win' : relegated && i >= t.rows.length - relegated ? 'border-l-loss' : 'border-l-transparent';
+                    const z = zoneOf(i + 1, t.rows.length, { top: playoffTeams || undefined, promote: promoted || undefined, bottom: relegated || undefined });
+                    const zone = z === 'promote' ? 'border-l-win' : z === 'playoff' ? 'border-l-primary' : z === 'relegate' ? 'border-l-loss' : 'border-l-transparent';
                     return (
                       <motion.tr
                         key={r.teamId}
                         layout={!reduce ? 'position' : false}
                         transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                        className={cn('border-b border-l-4 border-b-line/40', zone, favs.has(r.teamId) && 'bg-secondary/10', mv && mv.pts > 0 && 'bg-win/10')}
+                        className={cn('border-b border-b-line/40', favs.has(r.teamId) && 'bg-secondary/10', mv && mv.pts > 0 && 'bg-win/10')}
                       >
-                        <td className="py-1.5 pl-2 font-display text-base font-bold tabular text-muted">{i + 1}</td>
+                        <td className={cn('border-l-4 py-1.5 pl-2 font-display text-base font-bold tabular text-muted', zone)}>{i + 1}</td>
                         <td className="py-1.5">
                           <span className="flex min-w-0 items-center gap-2">
                             {team && <Crest team={team} size={22} />}
@@ -353,6 +353,7 @@ function LeagueBoard({ e, matches, teams, rowsLimit, favs }: { e: Edition; match
                 </AnimatePresence>
               </tbody>
             </table>
+            <ZoneLegend zones={{ top: playoffTeams || undefined, promote: promoted || undefined, bottom: relegated || undefined }} />
           </div>
         ))
       )}

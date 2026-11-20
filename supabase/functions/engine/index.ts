@@ -3,7 +3,7 @@
 import { AppError, q, serviceClient, userClient } from './db.ts';
 import { createEdition } from './season.ts';
 import { addBlock, createDay, deleteDay, generatePlan, getPlan, mergeDays, moveBlock, publishDay, removeBlock, unplanned } from './plan.ts';
-import { cancelItem, closeDay, compactDay, dayStatus, forceItem, pauseDay, resumeDay, setMatchEvent, shiftItem, startDay, tick } from './day.ts';
+import { cancelItem, closeDay, compactDay, resequenceLives, dayStatus, forceItem, pauseDay, resumeDay, setMatchEvent, shiftItem, startDay, tick } from './day.ts';
 import { longTermOdds, oddsForMatch, placeBet } from './bets.ts';
 import { simulateUnitNow, snapshotProbabilities, editionMatches } from './run.ts';
 import type { EditionRow } from './types.ts';
@@ -142,6 +142,7 @@ Deno.serve(async (req) => {
         return json(await dayStatus(db, body.dayId));
       case 'day.compact':
         await compactDay(db, body.dayId);
+        await resequenceLives(db);
         return json(await dayStatus(db, body.dayId));
       case 'season.finishBy':
         return json(await finishSeasonBy(db, String(body.endDate ?? ''), String(body.endTime ?? `${Number(body.endHour ?? 22)}:00`)));

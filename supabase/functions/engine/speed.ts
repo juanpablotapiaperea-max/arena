@@ -2,7 +2,7 @@
 // fecha elegida y el ritmo se aprieta para terminar antes de la hora límite.
 import { AppError, getSetting, q, type DB } from './db.ts';
 import { generatePlan, getPlan } from './plan.ts';
-import { compactDay, dayDeadline, resumeDay } from './day.ts';
+import { compactDay, dayDeadline, resequenceLives, resumeDay } from './day.ts';
 
 const MX_SHIFT = 6 * 3600_000; // México (UTC-6)
 
@@ -39,6 +39,7 @@ export async function finishSeasonBy(db: DB, endDate: string, endTime = '22:00')
     if (d.status === 'paused') await resumeDay(db, d.id);
     await compactDay(db, d.id, Date.now(), todayDeadline > Date.now() + 10 * 60_000 ? todayDeadline : lastDeadline);
   }
+  if (open.length) await resequenceLives(db);
 
   // 3. Los días planeados que no han empezado se rehacen.
   await q(db.from('competition_days').delete().eq('status', 'planned'));

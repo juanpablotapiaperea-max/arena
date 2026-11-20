@@ -176,6 +176,38 @@ function Row({ team, score, bold, dim, show }: { team?: Team; score: number | nu
   );
 }
 
+type Zone = 'promote' | 'playoff' | 'relegate';
+const ZONE_COLOR: Record<Zone, string> = { promote: 'rgb(var(--win))', playoff: 'rgb(var(--team-primary))', relegate: 'rgb(var(--loss))' };
+const ZONE_ROW: Record<Zone, string> = { promote: 'bg-win/[0.06]', playoff: 'bg-primary/[0.05]', relegate: 'bg-loss/[0.07]' };
+const ZONE_LABEL: Record<Zone, string> = { promote: 'Ascenso', playoff: 'Playoffs', relegate: 'Descenso' };
+
+/** Zona de una posición: ascenso tiene prioridad sobre playoffs; descenso, abajo. */
+export function zoneOf(pos: number, n: number, z?: { top?: number; bottom?: number; promote?: number }): Zone | null {
+  if (!z) return null;
+  if (z.bottom && pos > n - z.bottom) return 'relegate';
+  if (z.promote && pos <= z.promote) return 'promote';
+  if (z.top && pos <= z.top) return 'playoff';
+  return null;
+}
+
+export function ZoneLegend({ zones, topLabel }: { zones?: { top?: number; bottom?: number; promote?: number }; topLabel?: string }) {
+  const items: [Zone, string][] = [];
+  if (zones?.promote) items.push(['promote', `${ZONE_LABEL.promote} (${zones.promote})`]);
+  if (zones?.top) items.push(['playoff', `${topLabel ?? ZONE_LABEL.playoff} (${zones.top})`]);
+  if (zones?.bottom) items.push(['relegate', `${ZONE_LABEL.relegate} (${zones.bottom})`]);
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-wrap gap-3 px-3 py-2 text-xs text-muted">
+      {items.map(([z, label]) => (
+        <span key={z} className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-1.5 rounded-sm" style={{ background: ZONE_COLOR[z] }} aria-hidden />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function StandingsTable({
   rows,
   teams,
@@ -217,17 +249,14 @@ export function StandingsTable({
         <tbody>
           {rows.map((r) => {
             const t = teams.get(r.team_id);
-            const inTop = zones?.top && r.position <= zones.top;
-            const inBottom = zones?.bottom && r.position > n - zones.bottom;
-            const inPromo = zones?.promote && r.position <= zones.promote;
+            const zone = zoneOf(r.position, n, zones);
             return (
               <motion.tr
                 layout
                 key={r.team_id}
-                className={cn('border-b border-line/50 last:border-0', highlight?.has(r.team_id) && 'bg-primary/10')}
-                style={{ boxShadow: inBottom ? 'inset 3px 0 0 rgb(var(--loss))' : inTop || inPromo ? 'inset 3px 0 0 rgb(var(--win))' : undefined }}
+                className={cn('border-b border-line/50 last:border-0', highlight?.has(r.team_id) && 'bg-primary/10', zone && ZONE_ROW[zone])}
               >
-                <td className="px-2 py-1.5">
+                <td className="px-2 py-1.5" style={zone ? { borderLeft: `4px solid ${ZONE_COLOR[zone]}` } : { borderLeft: '4px solid transparent' }}>
                   <span className="flex items-center gap-1">
                     <span className="w-5 text-right font-display text-base font-bold tabular">{r.position}</span>
                     <Movement now={r.position} before={r.prev_position} />
@@ -261,17 +290,8 @@ export function StandingsTable({
         </tbody>
       </table>
       {zones && (
-        <div className="flex flex-wrap gap-3 border-t border-line px-3 py-2 text-[11px] text-muted">
-          {zones.top ? (
-            <span className="flex items-center gap-1">
-              <span className="h-3 w-1 rounded bg-win" aria-hidden /> {zones.topLabel ?? 'Playoffs'}
-            </span>
-          ) : null}
-          {zones.bottom ? (
-            <span className="flex items-center gap-1">
-              <span className="h-3 w-1 rounded bg-loss" aria-hidden /> {zones.bottomLabel ?? 'Descenso'}
-            </span>
-          ) : null}
+        <div className="border-t border-line">
+          <ZoneLegend zones={zones} topLabel={zones.topLabel} />
         </div>
       )}
     </div>
