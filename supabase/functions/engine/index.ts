@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
       case 'edition.probabilities': {
         const e = await q<EditionRow>(db.from('editions').select('*').eq('id', body.editionId).single());
         const teams = (await q<{ team_id: string }[]>(db.from('edition_teams').select('team_id').eq('edition_id', e.id).order('seed'))).map((t) => t.team_id);
-        await snapshotProbabilities(db, e, await editionMatches(db, e.id), teams);
+        await snapshotProbabilities(db, e, await editionMatches(db, e.id), teams, true);
         return json(await longTermOdds(db, e.id));
       }
       case 'tick':

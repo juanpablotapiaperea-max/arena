@@ -337,12 +337,14 @@ async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now'
 
 /** Garantiza que existan los partidos de una unidad (playoffs que dependen de la anterior). */
 async function ensureUnit(db: DB, editionId: string, unitIndex: number): Promise<MatchDb[]> {
-  let ms = (await editionMatches(db, editionId)).filter((m) => m.unit_index === unitIndex);
+  // Solo los partidos de esa jornada (no toda la competición: miles de filas).
+  const unit = (u: number) => all<MatchDb>(() => db.from('matches').select(MATCH_COLS).eq('edition_id', editionId).eq('unit_index', u).order('id'));
+  let ms = await unit(unitIndex);
   if (ms.length) return ms;
-  const prev = (await editionMatches(db, editionId)).filter((m) => m.unit_index === unitIndex - 1);
+  const prev = await unit(unitIndex - 1);
   if (prev.length && prev.every((m) => m.status === 'finished')) {
     await closeUnits(db, editionId, [unitIndex - 1]);
-    ms = (await editionMatches(db, editionId)).filter((m) => m.unit_index === unitIndex);
+    ms = await unit(unitIndex);
   }
   return ms;
 }
@@ -365,8 +367,9 @@ async function runBurst(db: DB, item: ScheduleItem): Promise<void> {
   );
   const pick = others.length ? pending.slice(0, item.burst_size ?? 4) : pending;
   const e = await q<EditionRow>(db.from('editions').select('*').eq('id', item.edition_id).single());
-  const ctx = await loadContext(db, pick.flatMap((m) => [m.home_team_id, m.away_team_id]));
-  await countGamesToday(db, ctx.gamesToday, item.day_id);
+  const teamIds = pick.flatMap((m) => [m.home_team_id, m.away_team_id]);
+  const ctx = await loadContext(db, teamIds);
+  await countGamesToday(db, ctx.gamesToday, item.day_id, teamIds);
   const payloads: SimPayload[] = [];
   for (const m of pick) payloads.push((await simulate(ctx, m, e, false)).payload);
   await commitResults(db, payloads);
@@ -380,14 +383,18 @@ async function runBurst(db: DB, item: ScheduleItem): Promise<void> {
   );
 }
 
-async function countGamesToday(db: DB, map: Map<string, number>, dayId: string) {
-  const done = await all<{ match_ids: string[]; match_id: string | null }>(() => db.from('schedule_items').select('match_ids,match_id').eq('day_id', dayId).eq('status', 'done'));
-  const ids = done.flatMap((d) => [...(d.match_ids ?? []), ...(d.match_id ? [d.match_id] : [])]);
+/** Partidos que ya jugó hoy cada equipo (para el cansancio), solo de los equipos que juegan. */
+async function countGamesToday(db: DB, map: Map<string, number>, dayId: string, teamIds: string[]) {
+  const ids = [...new Set(teamIds)];
   if (!ids.length) return;
-  for (let i = 0; i < ids.length; i += 300) {
-    const ms = await q<{ home_team_id: string; away_team_id: string }[]>(db.from('matches').select('home_team_id,away_team_id').in('id', ids.slice(i, i + 300)));
-    for (const m of ms) for (const t of [m.home_team_id, m.away_team_id]) map.set(t, (map.get(t) ?? 0) + 1);
-  }
+  const day = await q<{ started_at: string | null }>(db.from('competition_days').select('started_at').eq('id', dayId).single());
+  const since = day.started_at ?? new Date(Date.now() - 12 * 3600_000).toISOString();
+  const list = ids.join(',');
+  const ms = await all<{ home_team_id: string; away_team_id: string }>(() =>
+    db.from('matches').select('home_team_id,away_team_id').eq('status', 'finished').gte('finished_at', since).or(`home_team_id.in.(${list}),away_team_id.in.(${list})`),
+  );
+  const want = new Set(ids);
+  for (const m of ms) for (const t of [m.home_team_id, m.away_team_id]) if (want.has(t)) map.set(t, (map.get(t) ?? 0) + 1);
 }
 
 async function startLive(db: DB, item: ScheduleItem): Promise<void> {
@@ -416,7 +423,7 @@ async function startLive(db: DB, item: ScheduleItem): Promise<void> {
   }
   const e = await q<EditionRow>(db.from('editions').select('*').eq('id', m.edition_id).single());
   const ctx = await loadContext(db, [m.home_team_id, m.away_team_id]);
-  await countGamesToday(db, ctx.gamesToday, item.day_id);
+  await countGamesToday(db, ctx.gamesToday, item.day_id, [m.home_team_id, m.away_team_id]);
   const { payload, result } = await simulate(ctx, m, e, true);
   // La línea de tiempo se guarda completa antes de empezar; el resultado queda oculto.
   await q(db.from('match_timelines').upsert({ match_id: m.id, events: enrichTimeline(result.timeline ?? [], payload), duration_seconds: result.durationSeconds }));
@@ -471,10 +478,10 @@ async function autoStart(db: DB): Promise<string | null> {
   return day.id;
 }
 
-export async function tick(db: DB, budgetMs = 42_000) {
+export async function tick(db: DB, budgetMs = 20_000) {
   const t = Date.now();
   // Una sola ejecución a la vez: el motor despierta cada 15 s.
-  const { data: got } = await db.rpc('acquire_tick_lease', { p_seconds: 120 });
+  const { data: got } = await db.rpc('acquire_tick_lease', { p_seconds: 75 });
   if (got === false) return { ran: [], busy: true, ms: 0 };
   try {
     return await tickInner(db, budgetMs, t);
@@ -495,7 +502,9 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
     const running = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'running'));
     for (const it of running) await finishLive(db, it);
 
-    for (let guard = 0; guard < 400 && Date.now() - t < budgetMs; guard++) {
+    // Pocas tareas por vuelta: el servidor corta las ejecuciones que gastan mucho
+    // procesador; el motor despierta cada 15 s, así que no se pierde ritmo.
+    for (let guard = 0; guard < 4 && Date.now() - t < budgetMs; guard++) {
       const due = await q<ScheduleItem[]>(
         db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').lte('scheduled_at', new Date().toISOString()).order('scheduled_at').limit(1),
       );

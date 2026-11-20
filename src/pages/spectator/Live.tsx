@@ -143,7 +143,14 @@ export function LiveMatchPage() {
   const finished = feed.data?.status === 'finished' || m?.status === 'finished';
   const started = feed.data?.started_at ? Date.parse(feed.data.started_at) : null;
   const elapsed = finished ? duration : started ? Math.max(0, (now + offset - started) / 1000) : 0;
-  const events = useMemo(() => (feed.data?.events ?? []).filter((e) => finished || e.second <= elapsed), [feed.data, elapsed, finished]);
+  // Mientras se juega no se revela cuál gol será el del triunfo.
+  const events = useMemo(
+    () =>
+      (feed.data?.events ?? [])
+        .filter((e) => finished || e.second <= elapsed)
+        .map((e) => (finished || !e.data?.gameWinning ? e : { ...e, data: { ...e.data, gameWinning: undefined } })),
+    [feed.data, elapsed, finished],
+  );
   const goals = events.filter((e) => e.type === 'goal');
   const last = goals[goals.length - 1];
   const score: [number, number] = last?.data?.score ?? [0, 0];
