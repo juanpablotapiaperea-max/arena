@@ -8,6 +8,7 @@ import { A11yProvider, useA11y } from '@/lib/a11y';
 import { MotionConfig } from 'framer-motion';
 import App from './App';
 import { ErrorBoundary, reloadForNewVersion } from '@/components/ErrorBoundary';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import './styles/index.css';
 
 document.title = APP_NAME;
@@ -37,6 +38,7 @@ createRoot(document.getElementById('root')!).render(
               <ErrorBoundary>
                 <App />
               </ErrorBoundary>
+              <UpdateBanner />
             </BrowserRouter>
           </AuthProvider>
         </Motion>

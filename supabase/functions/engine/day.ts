@@ -223,9 +223,12 @@ async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now'
   const otherLives = await q<{ scheduled_at: string }[]>(
     db.from('schedule_items').select('scheduled_at').neq('day_id', dayId).eq('kind', 'event').in('status', ['pending', 'running']).order('scheduled_at', { ascending: false }).limit(1),
   );
-  let liveAt = otherLives[0] ? Math.max(1, Math.ceil((Date.parse(otherLives[0].scheduled_at) - t0) / MIN + cal.liveEventMinutes)) : 1;
+  const liveStart = otherLives[0] ? Math.max(1, Math.ceil((Date.parse(otherLives[0].scheduled_at) - t0) / MIN + cal.liveEventMinutes)) : 1;
+  // Dos vivos a la vez solo si con uno no alcanza el tiempo del día.
+  const tight = kept.length * liveMinutes > Math.max(1, windowMin - liveStart);
+  const trackAt = tight ? [liveStart, 1] : [liveStart];
   let k = 0;
-  const pushLive = (l: Live, at: number) => {
+  const pushLive = (l: Live, at: number, track: number) => {
     items.push({
       day_id: dayId,
       kind: 'event',
@@ -236,27 +239,31 @@ async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now'
       sort_order: l.slot,
       scheduled_at: new Date(t0 + at * MIN).toISOString(),
       label: l.name,
+      ...(track > 0 ? { result: { track: track + 1 } } : {}),
     });
   };
+  /** Siguiente hueco en la pista de vivos más libre, no antes de `from`. */
+  const nextSlot = (l: Live, from: number) => {
+    let t = 0;
+    for (let i = 1; i < trackAt.length; i++) if (trackAt[i] < trackAt[t]) t = i;
+    const at = Math.max(trackAt[t], from);
+    trackAt[t] = at + liveMinutes;
+    pushLive(l, at, t);
+  };
+  const livesEnd = () => Math.max(...trackAt);
   const finals = kept.filter((l) => l.final);
   for (const b of blocks) {
     const bu = burstUnits.find((x) => x.block.id === b.id);
     const blockLives = kept.filter((l) => l.block.id === b.id && !l.final);
     const isMainUnit = blockLives.some((l) => l.slot >= 0);
     if (isMainUnit) {
-      liveAt = Math.max(liveAt, burstAt);
-      for (const l of blockLives) {
-        pushLive(l, liveAt);
-        liveAt += liveMinutes;
-      }
-      burstAt = Math.max(burstAt, liveAt);
+      // Ronda en vivo: arranca cuando terminó todo lo anterior.
+      const from = Math.max(burstAt, livesEnd());
+      for (const l of blockLives) nextSlot(l, from);
+      burstAt = Math.max(burstAt, livesEnd());
     } else {
       // Derbis de jornada: en la siguiente franja libre de vivos, sin esperar.
-      for (const l of blockLives) {
-        liveAt = Math.max(liveAt, burstAt);
-        pushLive(l, liveAt);
-        liveAt += liveMinutes;
-      }
+      for (const l of blockLives) nextSlot(l, burstAt);
     }
     if (bu) {
       let left = bu.count;
@@ -278,12 +285,13 @@ async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now'
       }
     }
   }
-  // Las finales ocupan el último horario del día.
-  let finalAt = Math.max(liveAt, burstAt);
+  // Las finales ocupan el último horario del día, una sola a la vez.
+  let finalAt = Math.max(livesEnd(), burstAt);
   for (const l of finals) {
-    pushLive(l, finalAt);
+    pushLive(l, finalAt, 0);
     finalAt += liveMinutes;
   }
+  const liveAt = livesEnd();
   void keptIds;
   items.push({
     day_id: dayId,
@@ -384,8 +392,12 @@ async function countGamesToday(db: DB, map: Map<string, number>, dayId: string) 
 
 async function startLive(db: DB, item: ScheduleItem): Promise<void> {
   // Nunca dos eventos en vivo a la vez.
+  // Un vivo a la vez; dos solo cuando el horario está apretado (hay vivos en la segunda pista).
   const live = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('kind', 'event').eq('status', 'running'));
-  if (live.length) return postpone(db, item, 1);
+  if (live.length) {
+    const second = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('kind', 'event').in('status', ['pending', 'running']).eq('result->>track', '2').limit(1));
+    if (live.length >= (second.length ? 2 : 1)) return postpone(db, item, 1);
+  }
   let matchId = item.match_id;
   if (!matchId) {
     const ms = await ensureUnit(db, item.edition_id!, item.unit_index!);
@@ -564,22 +576,27 @@ export async function compactDay(db: DB, dayId: string, liveFrom = Date.now(), d
     if (bursts) every = Math.max(0.25, Math.min(cal.burstEveryMinutes, avail / bursts));
   }
   let burstAt = start;
-  let liveAt = Math.max(liveFrom, start);
+  const events = pending.filter((i) => i.kind === 'event').length;
+  // Dos pistas de vivos solo si con una no se llega a la hora de fin.
+  const twoTracks = !!deadline && events * cal.liveEventMinutes * MIN > deadline - Math.max(liveFrom, start);
+  const tracks = twoTracks ? [Math.max(liveFrom, start), start] : [Math.max(liveFrom, start)];
   let end = burstAt;
   const ids: string[] = [];
   const times: string[] = [];
   for (const it of pending) {
     let at: number;
+    let track = 0;
     if (it.kind === 'burst') {
       at = burstAt;
       burstAt += every * MIN;
     } else if (it.kind === 'event') {
-      at = Math.max(liveAt, burstAt - every * MIN);
-      liveAt = at + cal.liveEventMinutes * MIN;
+      for (let i = 1; i < tracks.length; i++) if (tracks[i] < tracks[track]) track = i;
+      at = Math.max(tracks[track], burstAt - every * MIN);
+      tracks[track] = at + cal.liveEventMinutes * MIN;
     } else continue;
-    end = Math.max(end, it.kind === 'event' ? liveAt : burstAt);
+    end = Math.max(end, it.kind === 'event' ? Math.max(...tracks) : burstAt);
     const iso = new Date(at).toISOString();
-    await q(db.from('schedule_items').update({ scheduled_at: iso }).eq('id', it.id));
+    await q(db.from('schedule_items').update({ scheduled_at: iso, ...(it.kind === 'event' ? { result: track > 0 ? { track: 2 } : null } : {}) }).eq('id', it.id));
     if (it.match_id) {
       ids.push(it.match_id);
       times.push(iso);
