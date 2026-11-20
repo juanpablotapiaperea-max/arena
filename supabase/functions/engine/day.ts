@@ -68,6 +68,13 @@ async function derbyScores(db: DB, ms: MatchDb[], editions: Map<string, EditionR
   return out;
 }
 
+/** Hora de fin del día (México): `dayEndTime` "HH:MM" o `dayEndHour`. */
+export function dayDeadline(date: string, cal: Record<string, unknown>): number {
+  const t = typeof cal.dayEndTime === 'string' && /^\d{1,2}:\d{2}$/.test(cal.dayEndTime) ? cal.dayEndTime : `${Number(cal.dayEndHour ?? 14)}:00`;
+  const [h, m] = t.split(':').map(Number);
+  return Date.parse(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00${MX_OFFSET}`);
+}
+
 function windowStart(day: DayRow, mode: 'real' | 'now'): number {
   const now = Date.now();
   if (mode === 'now') return now;
@@ -77,10 +84,24 @@ function windowStart(day: DayRow, mode: 'real' | 'now'): number {
 
 /** Inicia el día: forma, lesiones, estilos bloqueados y guion completo. */
 export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 'real') {
-  const day = await q<DayRow>(db.from('competition_days').select('*').eq('id', dayId).single());
-  if (day.status !== 'planned') throw new AppError('Ese día ya se inició');
-  const running = await q<{ id: string }[]>(db.from('competition_days').select('id').in('status', ['running', 'paused']));
-  if (running.length) throw new AppError('Ya hay un día en curso. Ciérralo antes de iniciar otro.');
+  // Se aparta el día de forma atómica: si dos arranques llegan a la vez, solo uno sigue.
+  const claimed = await q<DayRow[]>(
+    db.from('competition_days').update({ status: 'running', mode, published: true, started_at: new Date().toISOString() }).eq('id', dayId).eq('status', 'planned').select('*'),
+  );
+  if (!claimed.length) throw new AppError('Ese día ya se inició');
+  try {
+    return await buildDay(db, claimed[0], dayId, mode);
+  } catch (e) {
+    // Si algo falla a la mitad, el día vuelve a quedar listo para reintentar.
+    await db.from('schedule_items').delete().eq('day_id', dayId);
+    await db.from('competition_days').update({ status: 'planned', started_at: null }).eq('id', dayId);
+    throw e;
+  }
+}
+
+async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now') {
+  // Se permite arrancar aunque otro día siga en curso: corren en paralelo y los
+  // eventos en vivo hacen fila entre todos los días.
   const blocks = await q<Block[]>(db.from('plan_blocks').select('*').eq('day_id', dayId).eq('kind', 'unit').order('sort_order'));
   if (!blocks.length) throw new AppError('El día no tiene jornadas planeadas');
 
@@ -126,13 +147,18 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // Mínimo de eventos en vivo por día: si los derbis que pasaron el umbral no
   // alcanzan, se completan con los mejores partidos, repartidos entre todas las
   // jornadas del día para que siempre haya algo en vivo y sin huecos largos.
-  // Ventana del día: desde el arranque hasta la hora límite (México).
+  // Ventana del día: desde el arranque hasta la hora de fin (México).
   const t0 = windowStart(day, mode);
-  const endHour = (cal as { dayEndHour?: number }).dayEndHour ?? 14;
-  const deadline = Date.parse(`${day.date}T${String(Math.floor(endHour)).padStart(2, '0')}:00:00${MX_OFFSET}`);
-  const windowMin = Math.max(60, Math.floor((deadline - t0) / MIN));
-  // Duración objetivo de las ráfagas: lo antes posible, sin pasar de la ventana.
-  const targetMin = Math.min(windowMin, (cal as { targetDayMinutes?: number }).targetDayMinutes ?? 300);
+  const deadline = dayDeadline(day.date, cal);
+  const windowMin = Math.max(20, Math.floor((deadline - t0) / MIN) - 3);
+  // Si se programó la hora de fin, todo se ajusta para acabar justo a esa hora;
+  // si no, las ráfagas buscan terminar en ~5 h.
+  const fit = (cal as { fitToDeadline?: boolean }).fitToDeadline === true;
+  const dayTarget = fit ? windowMin : Math.min(windowMin, (cal as { targetDayMinutes?: number }).targetDayMinutes ?? 300);
+  // Las rondas en vivo obligatorias (cuartos en adelante) van una tras otra al
+  // final: se les reserva su tiempo y las ráfagas terminan antes.
+  const mainLiveMin = lives.filter((l) => l.slot >= 0 || l.final).length * cal.liveEventMinutes;
+  const targetMin = Math.max(15, dayTarget - mainLiveMin);
   const liveCap = Math.max(1, Math.floor(targetMin / cal.liveEventMinutes));
   const maxLives = Math.min(cal.maxLiveEventsPerDay, Math.max(liveCap, lives.length));
   // Vivos para cubrir el día: uno tras otro mientras corren las ráfagas.
@@ -193,7 +219,11 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   // eventos en vivo van uno tras otro; una ronda en vivo arranca cuando ya
   // terminó todo lo anterior.
   let burstAt = 1; // minutos desde t0
-  let liveAt = 1;
+  // Si otro día sigue en curso con vivos pendientes, los de este día van después.
+  const otherLives = await q<{ scheduled_at: string }[]>(
+    db.from('schedule_items').select('scheduled_at').neq('day_id', dayId).eq('kind', 'event').in('status', ['pending', 'running']).order('scheduled_at', { ascending: false }).limit(1),
+  );
+  let liveAt = otherLives[0] ? Math.max(1, Math.ceil((Date.parse(otherLives[0].scheduled_at) - t0) / MIN + cal.liveEventMinutes)) : 1;
   let k = 0;
   const pushLive = (l: Live, at: number) => {
     items.push({
@@ -289,7 +319,6 @@ export async function startDay(db: DB, dayId: string, mode: 'real' | 'now' = 're
   for (let i = 0; i < timeIds.length; i += 1000) {
     await q(db.rpc('set_match_times', { p_ids: timeIds.slice(i, i + 1000), p_times: timeAt.slice(i, i + 1000) }));
   }
-  await q(db.from('competition_days').update({ status: 'running', mode, published: true, started_at: new Date().toISOString() }).eq('id', dayId));
   await q(
     db.from('competition_days').update({
       announced: items.filter((x) => x.kind === 'event').map((x) => ({ name: x.label, at: x.scheduled_at })),
@@ -355,7 +384,7 @@ async function countGamesToday(db: DB, map: Map<string, number>, dayId: string) 
 
 async function startLive(db: DB, item: ScheduleItem): Promise<void> {
   // Nunca dos eventos en vivo a la vez.
-  const live = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('day_id', item.day_id).eq('kind', 'event').eq('status', 'running'));
+  const live = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('kind', 'event').eq('status', 'running'));
   if (live.length) return postpone(db, item, 1);
   let matchId = item.match_id;
   if (!matchId) {
@@ -415,8 +444,9 @@ async function finishLive(db: DB, item: ScheduleItem): Promise<void> {
 async function autoStart(db: DB): Promise<string | null> {
   const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings> & { autoStart?: boolean }>(db, 'calendar', {})) };
   if ((cal as { autoStart?: boolean }).autoStart === false) return null;
-  const busy = await q<{ id: string }[]>(db.from('competition_days').select('id').in('status', ['running', 'paused']));
-  if (busy.length) return null;
+  // Un día en pausa lo detiene todo (el administrador lo pausó a propósito).
+  const paused = await q<{ id: string }[]>(db.from('competition_days').select('id').eq('status', 'paused'));
+  if (paused.length) return null;
   const nowMx = new Date(Date.now() - 6 * 3600_000);
   const today = nowMx.toISOString().slice(0, 10);
   if (nowMx.getUTCHours() < 8) return null;
@@ -516,32 +546,50 @@ async function liveMinutesOf(db: DB) {
   return cal.liveEventMinutes;
 }
 
-/** Reacomoda lo pendiente del día con el ritmo actual, desde ahora. */
-export async function compactDay(db: DB, dayId: string, liveFrom = Date.now()) {
+/**
+ * Reacomoda lo pendiente del día desde ahora. Con `deadline`, el ritmo de las
+ * ráfagas se aprieta (hasta 4 por minuto) para que todo acabe a esa hora.
+ */
+export async function compactDay(db: DB, dayId: string, liveFrom = Date.now(), deadline?: number) {
   const cal = { ...DEFAULT_CALENDAR, ...(await getSetting<Partial<CalendarSettings>>(db, 'calendar', {})) };
   const pending = (await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', dayId).eq('status', 'pending'))).sort(
     (a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at) || a.sort_order - b.sort_order,
   );
-  let burstAt = Date.now() + 0.5 * MIN;
-  let liveAt = Math.max(liveFrom, Date.now() + 0.5 * MIN);
+  const start = Date.now() + 0.25 * MIN;
+  let every = cal.burstEveryMinutes;
+  if (deadline) {
+    const bursts = pending.filter((i) => i.kind === 'burst').length;
+    const mainLives = pending.filter((i) => i.kind === 'event' && !i.match_id).length;
+    const avail = (deadline - start) / MIN - mainLives * cal.liveEventMinutes - 3;
+    if (bursts) every = Math.max(0.25, Math.min(cal.burstEveryMinutes, avail / bursts));
+  }
+  let burstAt = start;
+  let liveAt = Math.max(liveFrom, start);
   let end = burstAt;
+  const ids: string[] = [];
+  const times: string[] = [];
   for (const it of pending) {
     let at: number;
     if (it.kind === 'burst') {
       at = burstAt;
-      burstAt += cal.burstEveryMinutes * MIN;
+      burstAt += every * MIN;
     } else if (it.kind === 'event') {
-      at = Math.max(liveAt, burstAt - cal.burstEveryMinutes * MIN);
+      at = Math.max(liveAt, burstAt - every * MIN);
       liveAt = at + cal.liveEventMinutes * MIN;
     } else continue;
     end = Math.max(end, it.kind === 'event' ? liveAt : burstAt);
     const iso = new Date(at).toISOString();
     await q(db.from('schedule_items').update({ scheduled_at: iso }).eq('id', it.id));
-    if (it.match_id) await q(db.from('matches').update({ scheduled_at: iso }).eq('id', it.match_id));
+    if (it.match_id) {
+      ids.push(it.match_id);
+      times.push(iso);
+    }
   }
+  if (ids.length) await q(db.rpc('set_match_times', { p_ids: ids, p_times: times }));
   for (const it of pending.filter((x) => x.kind === 'summary')) {
-    await q(db.from('schedule_items').update({ scheduled_at: new Date(end + 2 * MIN).toISOString() }).eq('id', it.id));
+    await q(db.from('schedule_items').update({ scheduled_at: new Date(end + 1 * MIN).toISOString() }).eq('id', it.id));
   }
+  return { end: new Date(end).toISOString(), burstEveryMinutes: every };
 }
 
 /** Adelanta (minutos negativos) o atrasa un elemento del guion. */

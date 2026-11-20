@@ -1174,7 +1174,10 @@ function FinishSeason({
     return iso(d);
   };
   const [date, setDate] = useState(today);
-  const [hour, setHour] = useState(22);
+  const [time, setTime] = useState(() => {
+    const d = new Date(Date.now() + 4 * 3600_000);
+    return `${String(Math.min(23, d.getHours())).padStart(2, '0')}:00`;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<{ dates: string[]; plan: Plan } | null>(
@@ -1189,15 +1192,15 @@ function FinishSeason({
       ) + 1;
     const msg =
       days <= 1
-        ? `Todo lo que falta de las ${active} competiciones se juega HOY, con hora límite ${hour}:00. Los vivos irán uno tras otro (30 s entre cada uno) y las ráfagas cada minuto. ¿Continuar?`
-        : `Todo lo que falta se reparte en ${days} días, hasta el ${fmtShortDate(date)}, con hora límite ${hour}:00 cada día. ¿Continuar?`;
+        ? `Todo lo que falta de las ${active} competiciones se juega HOY y termina a las ${time}. Lo que ya se está jugando también se acomoda para acabar a esa hora. ¿Continuar?`
+        : `Todo lo que falta se reparte en ${days} días, hasta el ${fmtShortDate(date)}; cada día termina a las ${time}. ¿Continuar?`;
     if (!window.confirm(msg)) return;
     setBusy(true);
     setError(null);
     try {
       const r = await engine<{ dates: string[]; plan: Plan }>(
         "season.finishBy",
-        { endDate: date, endHour: hour },
+        { endDate: date, endTime: time },
       );
       setResult(r);
       onDone(r.plan);
@@ -1261,18 +1264,8 @@ function FinishSeason({
           />
         </label>
         <label className="text-sm">
-          <span className="mb-1 block text-xs text-muted">Hora límite</span>
-          <select
-            value={hour}
-            onChange={(e) => setHour(Number(e.target.value))}
-            className="focus-ring min-h-10 rounded-xl border border-line bg-surface-2 px-3"
-          >
-            {[14, 16, 18, 20, 21, 22, 23].map((h) => (
-              <option key={h} value={h}>
-                {h}:00
-              </option>
-            ))}
-          </select>
+          <span className="mb-1 block text-xs text-muted">Hora en que termina todo</span>
+          <input type="time" step={300} value={time} onChange={(e) => setTime(e.target.value)} className="focus-ring min-h-10 rounded-xl border border-line bg-surface-2 px-3" />
         </label>
         <Button onClick={go} disabled={!active || busy}>
           {busy ? "Reprogramando…" : "Terminar ese día"}

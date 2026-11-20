@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
         await compactDay(db, body.dayId);
         return json(await dayStatus(db, body.dayId));
       case 'season.finishBy':
-        return json(await finishSeasonBy(db, String(body.endDate ?? ''), Number(body.endHour ?? 22)));
+        return json(await finishSeasonBy(db, String(body.endDate ?? ''), String(body.endTime ?? `${Number(body.endHour ?? 22)}:00`)));
       case 'press.gossip':
         return json({ made: await newsGossip(db, Math.min(20, Math.max(1, Number(body.count ?? 5)))) });
       case 'match.event':

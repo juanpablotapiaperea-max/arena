@@ -12,18 +12,13 @@ import { Countdown, LiveBadge, fmtDate, fmtTime, useNow } from '@/components/gam
 export function AdminDashboard() {
   const qc = useQueryClient();
   const { say } = useA11y();
-  const status = useQuery({
-    queryKey: ['day-status'],
-    queryFn: () => engine<{ day: CompetitionDay | null; items: ScheduleItem[] }>('day.status'),
-    refetchInterval: 5000,
-  });
+  const plan = useQuery({ queryKey: ['plan'], queryFn: () => engine<Plan>('plan.get'), refetchInterval: 10_000 });
+  const openDays = (plan.data?.days ?? []).filter((d) => d.status === 'running' || d.status === 'paused').sort((a, b) => a.date.localeCompare(b.date));
   const editions = useQuery({ queryKey: ['editions'], queryFn: getEditions });
   const { teams } = useTeams();
   const players = usePlayers();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const day = status.data?.day ?? null;
-  const items = status.data?.items ?? [];
 
   const act = async (label: string, action: string, body: Record<string, unknown>, done: string) => {
     setBusy(label);
@@ -53,13 +48,13 @@ export function AdminDashboard() {
         <Stat label="Lesionados" value={injured} />
       </div>
 
-      {status.isLoading ? (
+      {plan.isLoading ? (
         <Spinner />
-      ) : !day ? (
+      ) : !openDays.length ? (
         <Card className="flex flex-col items-center gap-3 p-8 text-center">
           <CalendarRange className="text-primary" size={32} aria-hidden />
           <h3 className="font-display text-2xl font-bold uppercase">Ningún día en curso</h3>
-          <p className="max-w-md text-sm text-muted">Arranca las competiciones, planea la semana y pulsa «Iniciar» en el día que quieras jugar.</p>
+          <p className="max-w-md text-sm text-muted">Los días planeados arrancan solos. También puedes usar «Arrancar ya» en la fila de días, o «Indicar fin de temporada» en el Planificador.</p>
           <div className="flex flex-wrap justify-center gap-2">
             <Link to="/admin/competiciones">
               <Button variant="outline">Competiciones</Button>
@@ -70,45 +65,38 @@ export function AdminDashboard() {
           </div>
         </Card>
       ) : (
-        <DayControl day={day} items={items} busy={busy} act={act} />
+        openDays.map((d) => <DayPanel key={d.id} dayId={d.id} busy={busy} act={act} />)
       )}
 
-      <DayQueue current={day} items={items} busy={busy} act={act} />
+      <DayQueue plan={plan.data} busy={busy} act={act} />
     </div>
   );
 }
 
 /** Fila de días: lo que se juega ahora y lo que sigue, con cuándo arranca cada uno. */
 function DayQueue({
-  current,
-  items,
+  plan,
   busy,
   act,
 }: {
-  current: CompetitionDay | null;
-  items: ScheduleItem[];
+  plan?: Plan;
   busy: string | null;
   act: (label: string, action: string, body: Record<string, unknown>, done: string) => Promise<void>;
 }) {
-  const plan = useQuery({ queryKey: ['plan'], queryFn: () => engine<Plan>('plan.get'), refetchInterval: 30_000 });
-  const days = (plan.data?.days ?? []).filter((d) => d.status !== 'closed').sort((a, b) => a.date.localeCompare(b.date));
+  const days = (plan?.days ?? []).filter((d) => d.status !== 'closed').sort((a, b) => a.date.localeCompare(b.date));
   if (!days.length) return null;
   const today = new Date(Date.now() - 6 * 3600_000).toISOString().slice(0, 10);
-  const busyDay = current && (current.status === 'running' || current.status === 'paused') ? current : null;
-  // Fin estimado del día en curso: su último elemento programado.
-  const currentEnd = busyDay && items.length ? items.reduce((m, i) => (i.scheduled_at > m ? i.scheduled_at : m), items[0].scheduled_at) : null;
-  const pendingNow = items.filter((i) => i.status === 'pending' || i.status === 'running').length;
-  const firstPlanned = days.find((d) => d.status === 'planned');
+  const busyDay = days.find((d) => d.status === 'running' || d.status === 'paused') ?? null;
 
   return (
     <Card className="space-y-3">
       <h3 className="flex items-center gap-2 font-semibold">
         <CalendarRange size={18} className="text-primary" aria-hidden /> Fila de días
       </h3>
-      <p className="text-sm text-muted">Los días se juegan uno tras otro. Cuando termina uno, el siguiente arranca solo (si su fecha ya llegó).</p>
+      <p className="text-sm text-muted">Cada día arranca solo cuando llega su fecha (aunque otro siga en curso: corren en paralelo y los vivos hacen fila). «Arrancar ya» lo adelanta.</p>
       <ol className="space-y-2">
         {days.map((d, i) => {
-          const isCurrent = busyDay?.id === d.id;
+          const isCurrent = d.status === 'running' || d.status === 'paused';
           const comps = [...new Set(d.blocks.map((b) => b.label.split(' · ')[0]))];
           const late = d.status === 'planned' && d.date < today;
           const waiting = d.status === 'planned' && d.date <= today;
@@ -118,7 +106,7 @@ function DayQueue({
               : 'Jugándose ahora'
             : waiting
               ? busyDay
-                ? `En espera: arranca solo al terminar el ${fmtDate(busyDay.date).split(',')[0]}${currentEnd && d.id === firstPlanned?.id ? ` (≈ ${fmtTime(currentEnd)})` : ''}`
+                ? 'Listo: arranca en segundos (en paralelo con el día en curso)'
                 : 'Arranca solo en menos de 1 min'
               : `Arranca solo el ${fmtDate(d.date)} a las 8:00`;
           return (
@@ -139,13 +127,12 @@ function DayQueue({
                 </div>
                 <div className="text-xs text-muted">
                   {label} · {d.blocks.length} jornadas · {d.matches.toLocaleString('es-MX')} partidos
-                  {isCurrent ? ` · faltan ${pendingNow} elementos` : ''}
                 </div>
                 {comps.length > 0 && <div className="mt-0.5 truncate text-xs text-muted">{comps.join(' · ')}</div>}
               </div>
-              {d.status === 'planned' && !busyDay && waiting && (
-                <Button size="sm" onClick={() => act('start-now', 'day.start', { dayId: d.id, mode: 'now' }, 'Día iniciado')} disabled={busy !== null}>
-                  <Play size={14} /> Arrancar ya
+              {d.status === 'planned' && (
+                <Button size="sm" onClick={() => act('start-' + d.id, 'day.start', { dayId: d.id, mode: 'now' }, 'Día iniciado')} disabled={busy !== null}>
+                  <Play size={14} /> {busy === 'start-' + d.id ? 'Arrancando… (unos segundos)' : 'Arrancar ya'}
                 </Button>
               )}
             </li>
@@ -154,6 +141,16 @@ function DayQueue({
       </ol>
     </Card>
   );
+}
+
+function DayPanel({ dayId, busy, act }: { dayId: string; busy: string | null; act: (label: string, action: string, body: Record<string, unknown>, done: string) => Promise<void> }) {
+  const status = useQuery({
+    queryKey: ['day-status', dayId],
+    queryFn: () => engine<{ day: CompetitionDay | null; items: ScheduleItem[] }>('day.status', { dayId }),
+    refetchInterval: 5000,
+  });
+  if (!status.data?.day) return <Spinner />;
+  return <DayControl day={status.data.day} items={status.data.items} busy={busy} act={act} />;
 }
 
 function DayControl({
