@@ -455,10 +455,22 @@ async function finishLive(db: DB, item: ScheduleItem): Promise<void> {
   const m = await q<MatchDb>(db.from('matches').select(MATCH_COLS).eq('id', item.match_id).single());
   const tl = await q<{ duration_seconds: number }>(db.from('match_timelines').select('duration_seconds').eq('match_id', m.id).single());
   if (!m.started_at || Date.now() < Date.parse(m.started_at) + tl.duration_seconds * 1000) return;
-  const secret = await q<{ pending_result: SimPayload }>(db.from('match_secrets').select('pending_result').eq('match_id', m.id).single());
+  // Si el resultado ya se guardó (una vuelta anterior se cortó a la mitad), solo se cierra.
+  if (m.status === 'finished') {
+    await q(db.from('schedule_items').update({ status: 'done', result: { matches: 1, hs: m.home_score, as: m.away_score } }).eq('id', item.id));
+    return;
+  }
+  const secret = await q<{ pending_result: SimPayload | null }>(db.from('match_secrets').select('pending_result').eq('match_id', m.id).single());
   const payload = secret.pending_result;
-  await commitResults(db, [payload]);
+  if (!payload) {
+    // Sin resultado guardado: se vuelve a jugar como evento (no debería pasar).
+    await q(db.from('matches').update({ status: 'scheduled', started_at: null }).eq('id', m.id));
+    await q(db.from('schedule_items').update({ status: 'pending', scheduled_at: new Date(Date.now() + MIN).toISOString() }).eq('id', item.id));
+    return;
+  }
+  // Primero se marca en la agenda; así un corte después no deja el vivo atorado.
   await q(db.from('schedule_items').update({ status: 'done', result: { matches: 1, hs: payload.homeScore, as: payload.awayScore } }).eq('id', item.id));
+  await commitResults(db, [payload]);
   const e = await q<EditionRow>(db.from('editions').select('*').eq('id', m.edition_id).single());
   const fin = await q<MatchDb>(db.from('matches').select(MATCH_COLS).eq('id', m.id).single());
   const names = new Map(payload.players.map((p) => [p.playerId, p.name ?? '']));
@@ -507,7 +519,14 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
   for (const day of days) {
     // Eventos en vivo que ya terminaron.
     const running = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'running'));
-    for (const it of running) await finishLive(db, it);
+    for (const it of running) {
+      try {
+        await finishLive(db, it);
+      } catch (e) {
+        console.error('finishLive', it.id, e);
+        log.push(`error:${it.label}`);
+      }
+    }
 
     // Pocas tareas por vuelta: el servidor corta las ejecuciones que gastan mucho
     // procesador; el motor despierta cada 15 s, así que no se pierde ritmo.
@@ -517,9 +536,18 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
       );
       const item = due[0];
       if (!item) break;
-      if (item.kind === 'burst') await runBurst(db, item);
-      else if (item.kind === 'event') await startLive(db, item);
-      else if (item.kind === 'summary') {
+      if (item.kind === 'burst' || item.kind === 'event') {
+        try {
+          if (item.kind === 'burst') await runBurst(db, item);
+          else await startLive(db, item);
+        } catch (e) {
+          // Un elemento con problemas no frena la fila: se reintenta en 2 minutos.
+          console.error('item', item.id, e);
+          log.push(`error:${item.label}`);
+          await postpone(db, item, 2).catch(() => undefined);
+          continue;
+        }
+      } else if (item.kind === 'summary') {
         const left = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('day_id', day.id).in('status', ['pending', 'running']).neq('kind', 'summary'));
         if (left.length) {
           await postpone(db, item, 2);

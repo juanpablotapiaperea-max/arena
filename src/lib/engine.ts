@@ -307,7 +307,8 @@ export const getNews = (limit = 40) =>
 
 export async function getCurrentDay(): Promise<CompetitionDay | null> {
   if (DEMO_MODE) return null;
-  const live = await rows<CompetitionDay>(db().from('competition_days').select('*').in('status', ['running', 'paused']).order('date').limit(1));
+  // Con varios días en curso, se muestra el más reciente (sus elementos incluyen los de los demás).
+  const live = await rows<CompetitionDay>(db().from('competition_days').select('*').in('status', ['running', 'paused']).order('date', { ascending: false }).limit(1));
   if (live[0]) return live[0];
   const next = await rows<CompetitionDay>(db().from('competition_days').select('*').eq('status', 'planned').eq('published', true).order('date').limit(1));
   if (next[0]) return next[0];
@@ -315,7 +316,18 @@ export async function getCurrentDay(): Promise<CompetitionDay | null> {
   return last[0] ?? null;
 }
 
-export const getDayItems = (dayId: string) => rows<ScheduleItem>(db().from('schedule_items').select('*').eq('day_id', dayId).order('scheduled_at'));
+/** Guion del día; si hay varios días en curso a la vez, junta los de todos. */
+export async function getDayItems(dayId: string): Promise<ScheduleItem[]> {
+  const open = await rows<{ id: string }>(db().from('competition_days').select('id').in('status', ['running', 'paused']));
+  const ids = open.some((d) => d.id === dayId) ? open.map((d) => d.id) : [dayId];
+  const out: ScheduleItem[] = [];
+  for (let from = 0; ; from += 1000) {
+    const page = await rows<ScheduleItem>(db().from('schedule_items').select('*').in('day_id', ids).order('scheduled_at').range(from, from + 999));
+    out.push(...page);
+    if (page.length < 1000) break;
+  }
+  return out;
+}
 
 export const getLiveMatches = () => (DEMO_MODE ? Promise.resolve([] as Match[]) : rows<Match>(db().from('matches').select('*').eq('status', 'live').order('started_at')));
 
