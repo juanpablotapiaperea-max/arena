@@ -54,11 +54,17 @@ export function CompetitionsAdmin() {
   const [invite, setInvite] = useState<Competition | null>(null);
   const [builder, setBuilder] = useState(false);
 
+  // Solo cuentan las ediciones de la temporada activa: las de temporadas anteriores ya no bloquean "Arrancar".
+  const activeSeason = useQuery({
+    queryKey: ['active-season'],
+    queryFn: async () => (await db().from('seasons').select('id,number').eq('status', 'active').order('number', { ascending: false }).limit(1).maybeSingle()).data as { id: string; number: number } | null,
+  });
   const seasonEditions = useMemo(() => {
     const m = new Map<string, Edition>();
-    for (const e of editions.data ?? []) if (!m.has(e.competition_id)) m.set(e.competition_id, e);
+    const sid = activeSeason.data?.id;
+    for (const e of editions.data ?? []) if (sid && e.season_id === sid && !m.has(e.competition_id)) m.set(e.competition_id, e);
     return m;
-  }, [editions.data]);
+  }, [editions.data, activeSeason.data]);
 
   const act = async (label: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(label);

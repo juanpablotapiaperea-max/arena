@@ -27,6 +27,23 @@ async function divisionTables(db: DB, seasonId: string) {
   return { primera: await table('primera'), segunda: await table('segunda'), editions: eds };
 }
 
+/** Ascensos y descensos que correspondían a una temporada ya terminada (sin aplicar). */
+export async function movementsFor(db: DB, seasonId: string) {
+  const { primera, segunda } = await divisionTables(db, seasonId);
+  if (!primera || !segunda) return { promoted: [] as string[], relegated: [] as string[] };
+  return divisionMoves(primera.order, segunda.order, Number(primera.edition.config.relegated ?? 6), Number(segunda.edition.config.promoted ?? 6));
+}
+
+/** Registra los cambios de división de la temporada que empieza. Idempotente. */
+export async function recordMovements(db: DB, seasonId: string, moves: { promoted: string[]; relegated: string[] }) {
+  const rows = [
+    ...moves.promoted.map((t) => ({ season_id: seasonId, team_id: t, kind: 'promoted', from_division: 2, to_division: 1 })),
+    ...moves.relegated.map((t) => ({ season_id: seasonId, team_id: t, kind: 'relegated', from_division: 1, to_division: 2 })),
+  ];
+  if (rows.length) await q(db.from('team_movements').upsert(rows, { onConflict: 'season_id,team_id' }));
+  return rows.length;
+}
+
 /** Vista previa: qué va a pasar al cerrar (el administrador puede corregir). */
 export async function closePreview(db: DB) {
   const season = await q<{ id: string; number: number }>(db.from('seasons').select('id,number').eq('status', 'active').order('number', { ascending: false }).limit(1).single());
@@ -133,6 +150,7 @@ export async function closeSeason(db: DB, moves?: { promoted: string[]; relegate
   await q(db.from('seasons').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', season.id));
   const next = await q<{ id: string; number: number }>(db.from('seasons').insert({ number: season.number + 1, status: 'active' }).select('id,number').single());
   log.push(`Empieza la temporada ${next.number}`);
+  await recordMovements(db, next.id, m);
 
   // 5. Plantillas completas: los huecos se cubren con agentes libres.
   await fillRosters(db);

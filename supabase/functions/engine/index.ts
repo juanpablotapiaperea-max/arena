@@ -9,7 +9,7 @@ import { simulateUnitNow, snapshotProbabilities, editionMatches } from './run.ts
 import type { EditionRow } from './types.ts';
 import { autoCloseWindow, closeWindow, forceTransfer, marketStatus, openWindow, vetoTransfer } from './market.ts';
 import { advanceDraft, draftState, ownerPick, prepareDraft, startDraft } from './draft.ts';
-import { closePreview, closeSeason } from './close.ts';
+import { closePreview, closeSeason, movementsFor, recordMovements } from './close.ts';
 import { maybeGossip, newsGossip } from './news.ts';
 import { finishSeasonBy } from './speed.ts';
 import { giveBalonOro } from './awards.ts';
@@ -44,6 +44,7 @@ const ADMIN = new Set([
   'press.gossip',
   'season.finishBy',
   'awards.balonOro',
+  'season.recordMovements',
   'item.shift',
   'item.cancel',
   'item.force',
@@ -146,6 +147,14 @@ Deno.serve(async (req) => {
         await compactDay(db, body.dayId);
         await resequenceLives(db);
         return json(await dayStatus(db, body.dayId));
+      case 'season.recordMovements': {
+        // Reconstruye los ascensos y descensos del cierre anterior (temporada activa = la nueva).
+        const active = await q<{ id: string; number: number }>(db.from('seasons').select('id,number').eq('status', 'active').single());
+        const prev = await q<{ id: string }>(db.from('seasons').select('id').eq('number', active.number - 1).single());
+        const m = await movementsFor(db, prev.id);
+        const n = await recordMovements(db, active.id, m);
+        return json({ season: active.number, ...m, registrados: n });
+      }
       case 'awards.balonOro':
         return json(await giveBalonOro(db, String(body.playerId ?? '')));
       case 'season.finishBy':

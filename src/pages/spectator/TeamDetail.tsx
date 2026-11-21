@@ -13,6 +13,7 @@ import { DEMO_MODE, db } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { StadiumView, type StadiumData } from '@/components/Stadium';
 import { TeamHallOfFame } from '@/components/HallOfFame';
+import { TeamStatusTags } from '@/components/TeamStatus';
 
 export function TeamDetailPage() {
   const { key } = useParams();
@@ -71,6 +72,9 @@ export function TeamDetailPage() {
             </div>
             <h1 className="font-display text-4xl font-extrabold uppercase leading-none sm:text-6xl">{team.name}</h1>
             <div className="mt-2 text-sm opacity-90">Estilo: {STYLE_LABELS[team.play_style as keyof typeof STYLE_LABELS] ?? team.play_style}</div>
+            <div className="mt-2">
+              <TeamStatusTags teamId={team.id} />
+            </div>
           </div>
         </div>
       </section>
