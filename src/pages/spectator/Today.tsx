@@ -111,7 +111,7 @@ export function TodayPage() {
                     <LiveBadge />
                     <MatchContextBadge m={m} />
                   </span>
-                  <span className="text-xs font-semibold uppercase tracking-wider">{m.event_name}</span>
+                  {m.event_name && !/· (Cuartos|Semifinales|Final|Octavos|Ronda)/.test(m.event_name) && <span className="text-xs font-semibold uppercase tracking-wider">{m.event_name}</span>}
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   {h && <Crest team={h} size={52} />}
