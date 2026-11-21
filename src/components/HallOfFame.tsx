@@ -203,26 +203,42 @@ function AwardLine({ a, player }: { a: AwardRow; player?: string }) {
   );
 }
 
-export interface RaceRow {
+export interface NomineeRow {
   player_id: string;
   team_id: string;
-  score: number;
+  score?: number;
   goals: number;
   assists: number;
   mvps: number;
-  titles: number;
+  gp: number;
   shutouts: number;
+  save_pct: number | null;
+  team_share: number | null;
+  titles: string[];
+  finals: string[];
+  semis: string[];
+  awards: string[];
 }
 
-/** Carrera al Balón de Oro y ganadores. Con `onPick`, el administrador elige al ganador. */
+/**
+ * Balón de Oro. Espectadores: los 10 nominados (orden alfabético) con sus
+ * números, edad y logros, sin puntaje. Administrador (`onPick`): con puntaje,
+ * en orden, y el botón para entregarlo.
+ */
 export function BalonOro({ onPick, busyId }: { onPick?: (playerId: string) => void; busyId?: string | null }) {
   const reduce = useReducedMotion();
   const { byId } = useTeams();
-  const names = usePlayerNames();
-  const race = useQuery({
-    queryKey: ['balon-oro-race'],
+  const all = usePlayers();
+  const players = useMemo(() => new Map((all.data ?? []).map((p) => [p.id, p])), [all.data]);
+  const admin = !!onPick;
+  const list = useQuery({
+    queryKey: ['balon-oro', admin ? 'race' : 'nominees'],
     enabled: !DEMO_MODE,
-    queryFn: async () => ((await db().rpc('balon_oro_race', { p_limit: 10 })).data ?? []) as RaceRow[],
+    queryFn: async () => {
+      const r = admin ? await db().rpc('balon_oro_race', { p_limit: 10 }) : await db().rpc('balon_oro_nominees');
+      if (r.error) throw new Error(r.error.message);
+      return (r.data ?? []) as NomineeRow[];
+    },
     refetchInterval: 60_000,
   });
   const winners = useQuery({
@@ -230,7 +246,8 @@ export function BalonOro({ onPick, busyId }: { onPick?: (playerId: string) => vo
     enabled: !DEMO_MODE,
     queryFn: async () => ((await db().from('awards').select('*').eq('kind', 'balon_oro').order('created_at', { ascending: false })).data ?? []) as AwardRow[],
   });
-  const max = Math.max(1, ...(race.data ?? []).map((r) => Number(r.score)));
+  const max = Math.max(1, ...(list.data ?? []).map((r) => Number(r.score ?? 0)));
+  const posLabel = (p?: string) => (p === 'G' ? 'Portero' : p === 'D' ? 'Defensa' : 'Delantero');
 
   return (
     <div className="space-y-5">
@@ -248,8 +265,10 @@ export function BalonOro({ onPick, busyId }: { onPick?: (playerId: string) => vo
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.3em] text-yellow-300/80">Mejor jugador de la temporada</div>
             <h1 className="font-display text-5xl font-extrabold uppercase leading-none text-yellow-50">Balón de Oro</h1>
-            <p className="mt-1 max-w-xl text-sm text-yellow-100/70">
-              Los 10 nominados salen de la temporada completa (goles, asistencias, MVP de partido, goles del triunfo, porterías en cero y títulos, con más peso en los torneos grandes). El ganador lo elige la organización.
+            <p className="mt-1 max-w-2xl text-sm text-yellow-100/70">
+              {admin
+                ? 'Puntaje (solo lo ves tú): números de la temporada, qué tan clave es en su equipo, títulos, finales y semifinales, con más peso en los torneos grandes. Segunda División no cuenta.'
+                : 'Los 10 nominados de la temporada: figuras de su equipo, campeones y protagonistas de las fases finales. El ganador lo elige la organización.'}
             </p>
           </div>
         </div>
@@ -263,12 +282,16 @@ export function BalonOro({ onPick, busyId }: { onPick?: (playerId: string) => vo
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {winners.data!.map((w) => {
               const t = w.team_id ? byId.get(w.team_id) : undefined;
+              const pl = w.player_id ? players.get(w.player_id) : undefined;
               return (
                 <li key={w.id} className="flex items-center gap-3 rounded-xl border border-yellow-400/30 bg-yellow-400/5 p-3">
                   {t && <Crest team={t} size={36} />}
                   <span className="min-w-0">
-                    <span className="block truncate font-display text-lg font-bold uppercase">{w.player_id ? names.get(w.player_id)?.name : '—'}</span>
-                    <span className="block text-xs text-muted">{w.label.replace('Balón de Oro · ', '')}</span>
+                    <span className="block truncate font-display text-lg font-bold uppercase">{pl ? `${pl.first_name} ${pl.last_name}` : '—'}</span>
+                    <span className="block text-xs text-muted">
+                      {w.label.replace('Balón de Oro · ', '')}
+                      {t ? ` · ${t.name}` : ''}
+                    </span>
                   </span>
                 </li>
               );
@@ -277,50 +300,109 @@ export function BalonOro({ onPick, busyId }: { onPick?: (playerId: string) => vo
         </section>
       )}
 
-      <section className="card overflow-hidden p-0">
-        <h3 className="border-b border-line px-4 py-3 font-semibold">Carrera de esta temporada</h3>
-        {race.isLoading ? (
-          <div className="p-4">
-            <Spinner />
-          </div>
-        ) : (race.data ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-muted">La carrera empieza en cuanto se jueguen los primeros partidos.</p>
+      <section>
+        <h3 className="mb-3 font-display text-2xl font-bold uppercase">{admin ? 'Nominados y puntaje' : 'Nominados de esta temporada'}</h3>
+        {list.isLoading ? (
+          <Spinner />
+        ) : list.error ? (
+          <p className="text-sm text-loss">{(list.error as Error).message}</p>
+        ) : (list.data ?? []).length === 0 ? (
+          <p className="card p-4 text-sm text-muted">Los nominados aparecen en cuanto se jueguen los primeros partidos.</p>
         ) : (
-          <ol>
-            {race.data!.map((r, i) => {
+          <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {list.data!.map((r, i) => {
               const t = byId.get(r.team_id);
-              const p = names.get(r.player_id);
+              const pl = players.get(r.player_id);
+              const goalie = pl?.position === 'G';
+              const won = [
+                ...r.titles.map((c) => ({ icon: '🏆', text: `Campeón · ${c}`, cls: 'border-yellow-400/50 bg-yellow-400/10 text-yellow-200' })),
+                ...r.finals.map((c) => ({ icon: '🥈', text: `Subcampeón · ${c}`, cls: 'border-slate-300/40 bg-slate-300/10 text-slate-200' })),
+                ...r.semis.map((c) => ({ icon: '⭐', text: `Semifinal · ${c}`, cls: 'border-line bg-surface-2 text-muted' })),
+                ...r.awards.map((c) => ({ icon: '🎖️', text: c, cls: 'border-purple-400/40 bg-purple-400/10 text-purple-200' })),
+              ];
               return (
                 <motion.li
                   key={r.player_id}
-                  layout={!reduce}
-                  className={cn('flex flex-wrap items-center gap-3 border-b border-line/50 px-4 py-3 last:border-0', i === 0 && 'bg-yellow-400/5')}
+                  initial={reduce ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i, 9) * 0.04 }}
+                  className="card relative overflow-hidden p-4"
+                  style={t ? { boxShadow: `inset 4px 0 0 ${t.primary_color}` } : undefined}
                 >
-                  <span className={cn('w-7 text-center font-display text-2xl font-extrabold tabular', i < 3 ? 'text-yellow-300' : 'text-muted')}>{i + 1}</span>
-                  {t && <Crest team={t} size={34} />}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold">{p?.name ?? 'Jugador'}</div>
-                    <div className="text-xs text-muted">
-                      <Link to={t ? `/equipos/${t.key}` : '#'} className="hover:text-fg">
-                        {t?.name}
-                      </Link>{' '}
-                      · {r.goals} G · {r.assists} A · {r.mvps} MVP{r.titles ? ` · ${r.titles} 🏆` : ''}
-                      {r.shutouts ? ` · ${r.shutouts} en cero` : ''}
+                  <div className="flex items-start gap-3">
+                    {admin && <span className={cn('w-7 pt-1 text-center font-display text-2xl font-extrabold tabular', i < 3 ? 'text-yellow-300' : 'text-muted')}>{i + 1}</span>}
+                    {t && <Crest team={t} size={48} />}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-display text-2xl font-bold uppercase leading-tight">{pl ? `${pl.first_name} ${pl.last_name}` : 'Jugador'}</div>
+                      <div className="text-sm text-muted">
+                        {t ? (
+                          <Link to={`/equipos/${t.key}`} className="hover:text-fg">
+                            {t.name}
+                          </Link>
+                        ) : null}
+                        {pl ? ` · ${posLabel(pl.position)} #${pl.number} · ${pl.age} años` : ''}
+                      </div>
                     </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                      <motion.div className="h-full rounded-full bg-gradient-to-r from-yellow-600 to-yellow-300" initial={false} animate={{ width: `${(Number(r.score) / max) * 100}%` }} />
-                    </div>
+                    {admin && <span className="font-display text-2xl font-bold tabular text-yellow-200">{Number(r.score ?? 0).toFixed(0)}</span>}
                   </div>
-                  <span className="font-display text-xl font-bold tabular text-yellow-200">{Number(r.score).toFixed(0)}</span>
-                  {onPick && (
-                    <Button size="sm" variant={i === 0 ? 'primary' : 'outline'} disabled={!!busyId} onClick={() => onPick(r.player_id)}>
-                      {busyId === r.player_id ? 'Entregando…' : 'Darle el Balón de Oro'}
-                    </Button>
+
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                    {(goalie
+                      ? [
+                          ['PJ', r.gp],
+                          ['En cero', r.shutouts],
+                          ['% atajadas', r.save_pct != null ? `${(Number(r.save_pct) * 100).toFixed(1)}` : '—'],
+                          ['MVP', r.mvps],
+                        ]
+                      : [
+                          ['Goles', r.goals],
+                          ['Asist.', r.assists],
+                          ['MVP', r.mvps],
+                          ['PJ', r.gp],
+                        ]
+                    ).map(([label, v]) => (
+                      <div key={label as string} className="rounded-xl bg-surface-2 py-2">
+                        <div className="font-display text-xl font-bold tabular">{v}</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!goalie && r.team_share != null && Number(r.team_share) >= 0.12 && (
+                    <div className="mt-2 text-xs text-secondary">Pieza clave: {Math.round(Number(r.team_share) * 100)}% de los goles y asistencias de su equipo en una competición</div>
+                  )}
+
+                  <div className="mt-3">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Lo que ganó</div>
+                    {won.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {won.map((w) => (
+                          <span key={w.text} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', w.cls)}>
+                            <span aria-hidden>{w.icon}</span> {w.text}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted">Sin títulos esta temporada: entra por sus números.</span>
+                    )}
+                  </div>
+
+                  {admin && (
+                    <>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                        <motion.div className="h-full rounded-full bg-gradient-to-r from-yellow-600 to-yellow-300" initial={false} animate={{ width: `${(Number(r.score ?? 0) / max) * 100}%` }} />
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button size="sm" variant={i === 0 ? 'primary' : 'outline'} disabled={!!busyId} onClick={() => onPick!(r.player_id)}>
+                          {busyId === r.player_id ? 'Entregando…' : 'Darle el Balón de Oro'}
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </motion.li>
               );
             })}
-          </ol>
+          </ul>
         )}
       </section>
     </div>
