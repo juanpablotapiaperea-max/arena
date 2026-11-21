@@ -5,6 +5,7 @@ import { Spinner } from './ui';
 import {
   Activity,
   Eye,
+  Crown,
   MonitorPlay,
   BookLock,
   CalendarRange,
@@ -38,6 +39,7 @@ export const ADMIN_MODULES = [
   { to: '/admin/economia', label: 'Economía y apuestas', icon: Coins },
   { to: '/admin/prensa', label: 'Prensa', icon: Newspaper },
   { to: '/admin/ranking', label: 'Ranking', icon: Trophy },
+  { to: '/admin/premios', label: 'Premios y Balón de Oro', icon: Crown },
   { to: '/admin/cierre', label: 'Cierre de temporada', icon: Flag },
   { to: '/admin/bitacora', label: 'Bitácora privada', icon: BookLock },
   { to: '/admin/configuracion', label: 'Configuración', icon: Settings },

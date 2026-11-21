@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DEMO_MODE, db } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { StadiumView, type StadiumData } from '@/components/Stadium';
+import { TeamHallOfFame } from '@/components/HallOfFame';
 
 export function TeamDetailPage() {
   const { key } = useParams();
@@ -84,6 +85,8 @@ export function TeamDetailPage() {
         <Stat label="Puntos de ranking" value={Math.round(entry?.points ?? 0).toLocaleString('es-MX')} />
         <Stat label="Plantilla" value={players.data?.length ?? '—'} />
       </div>
+
+      <TeamHallOfFame team={team} />
 
       {stadium.data && (
         <section>

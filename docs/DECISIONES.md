@@ -106,3 +106,8 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Ascienden 6: campeón y subcampeón de la liguilla de Segunda, los dos semifinalistas eliminados y los 2 mejores de los eliminados en cuartos (desempate: lugar en la tabla regular).
 - Descienden los 6 últimos de la tabla regular de Primera.
 - Para volver al ascenso por tabla, poner `promotionVia: "table"` en la configuración de Segunda. El administrador puede corregir todo en la vista previa del cierre.
+
+### Salón de la fama, premios y Balón de Oro
+- Al terminar cada competición se entregan solos: Goleador, Asistidor, MVP del torneo (más MVP de partido) y Mejor portero (más porterías en cero, luego % de atajadas; mínimo 25% de los partidos).
+- Cada equipo tiene vitrina (títulos del historial y de ARENA), placas de récords con su camiseta (goles, asistencias, MVP, partidos) y los premios de sus jugadores.
+- Balón de Oro: la fórmula propone 10 nominados (goles 1, asistencias 0.75, MVP 2, gol del triunfo 1, hat-trick 2, portería en cero 3, atajadas 0.025, × peso del torneo; bono por título 12 y subtítulo 6 × peso). El administrador elige al ganador en Admin → Premios.

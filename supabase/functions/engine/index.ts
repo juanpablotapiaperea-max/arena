@@ -12,6 +12,7 @@ import { advanceDraft, draftState, ownerPick, prepareDraft, startDraft } from '.
 import { closePreview, closeSeason } from './close.ts';
 import { maybeGossip, newsGossip } from './news.ts';
 import { finishSeasonBy } from './speed.ts';
+import { giveBalonOro } from './awards.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +43,7 @@ const ADMIN = new Set([
   'match.event',
   'press.gossip',
   'season.finishBy',
+  'awards.balonOro',
   'item.shift',
   'item.cancel',
   'item.force',
@@ -144,6 +146,8 @@ Deno.serve(async (req) => {
         await compactDay(db, body.dayId);
         await resequenceLives(db);
         return json(await dayStatus(db, body.dayId));
+      case 'awards.balonOro':
+        return json(await giveBalonOro(db, String(body.playerId ?? '')));
       case 'season.finishBy':
         return json(await finishSeasonBy(db, String(body.endDate ?? ''), String(body.endTime ?? `${Number(body.endHour ?? 22)}:00`)));
       case 'press.gossip':

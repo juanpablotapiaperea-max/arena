@@ -325,6 +325,8 @@ async function finishEdition(db: DB, e: EditionRow, ms: MatchDb[], teamIds: stri
   await q(
     db.from('editions').update({ status: 'finished', champion_team_id: champion, runner_up_team_id: runnerUp, finished_at: new Date().toISOString() }).eq('id', e.id),
   );
+  // Premios individuales del torneo: goleador, asistidor, MVP y mejor portero.
+  await db.rpc('grant_edition_awards', { p_edition: e.id });
   const rows = ms.map(toMatchRow);
   const elim = eliminationRounds(rows, e.config);
   const hasRegular = rows.some((m) => m.stage === 'regular' || m.stage === 'swiss');

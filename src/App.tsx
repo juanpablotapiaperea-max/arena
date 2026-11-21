@@ -85,6 +85,14 @@ const HistoryPage = named(
 const BetsPage = named(() => import("@/pages/spectator/Bets"), "BetsPage");
 const NewsPage = named(() => import("@/pages/spectator/News"), "NewsPage");
 const BoardPage = named(() => import("@/pages/spectator/Board"), "BoardPage");
+const AwardsAdmin = named(
+  () => import("@/pages/admin/AwardsAdmin"),
+  "AwardsAdmin",
+);
+const BalonOroPage = named(
+  () => import("@/pages/spectator/BalonOro"),
+  "BalonOroPage",
+);
 const GossipPage = named(
   () => import("@/pages/spectator/Gossip"),
   "GossipPage",
@@ -137,6 +145,7 @@ export default function App() {
           <Route path="prensa" element={<PressAdmin />} />
           <Route path="ranking" element={<RankingAdmin />} />
           <Route path="cierre" element={<SeasonClose />} />
+          <Route path="premios" element={<AwardsAdmin />} />
         </Route>
 
         <Route
@@ -157,6 +166,7 @@ export default function App() {
           <Route path="noticias" element={<NewsPage />} />
           <Route path="chismes" element={<GossipPage />} />
           <Route path="board" element={<BoardPage />} />
+          <Route path="balon-de-oro" element={<BalonOroPage />} />
           <Route path="mercado" element={<MarketPage />} />
           <Route path="mi-club" element={<MyClubPage />} />
           <Route path="equipos" element={<TeamsPage />} />
