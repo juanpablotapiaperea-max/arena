@@ -1,8 +1,9 @@
 // Simulación de probabilidades (sección 10): juega miles de veces lo que falta
 // de una edición con el mismo motor de goles, sin sesgos secretos, y cuenta
 // cuántas veces cada equipo es campeón, clasifica, asciende o desciende.
-import { advance, regularStandings, type EditionConfig, type EditionState, type Format, type MatchRow } from '../competition/edition.ts';
+import { advance, eliminationRounds, regularStandings, type EditionConfig, type EditionState, type Format, type MatchRow } from '../competition/edition.ts';
 import { expectedGoals, power } from '../engine/match.ts';
+import { playoffOrder } from '../competition/divisions.ts';
 import { createRng, poisson, type Rng } from '../engine/rng.ts';
 import type { EngineSettings, PlayStyle, TeamRatings } from '../engine/types.ts';
 
@@ -67,6 +68,16 @@ export function simulateProbabilities(
   const overtime = c.overtime !== false;
   const hasRegular = state.units.some((u) => u.stage !== 'playoff');
   const playoffStarted = matches.some((m) => m.stage === 'playoff');
+  // Ascenso por liguilla (Segunda): campeón, subcampeón, semifinalistas y los
+  // mejores de cuartos por tabla. Con promotionVia 'table', los primeros de la tabla.
+  const byPlayoff = !!c.promoted && (c as { promotionVia?: string }).promotionVia !== 'table' && Number((c as { playoffTeams?: number }).playoffTeams ?? 0) > 0;
+  const countPlayoffPromotion = (ms: MatchRow[], champion: string) => {
+    if (!byPlayoff) return;
+    const table = regularStandings(teamIds, ms, c).map((r) => r.teamId);
+    playoffOrder(table, eliminationRounds(ms, c), champion)
+      .slice(0, c.promoted ?? 0)
+      .forEach((t) => count.get(t)!.promotion++);
+  };
 
   for (let it = 0; it < iterations; it++) {
     const ms: MatchRow[] = matches.map((m) => ({ ...m }));
@@ -111,12 +122,13 @@ export function simulateProbabilities(
           const table = regularStandings(teamIds, ms, c).map((r) => r.teamId);
           const seeds = next.statePatch?.playoffSeeds ?? st.playoffSeeds ?? [];
           for (const t of seeds) count.get(t)!.playoffs++;
-          table.slice(0, c.promoted ?? 0).forEach((t) => count.get(t)!.promotion++);
+          if (!byPlayoff) table.slice(0, c.promoted ?? 0).forEach((t) => count.get(t)!.promotion++);
           if (c.relegated) table.slice(-c.relegated).forEach((t) => count.get(t)!.relegation++);
         }
         if (next.statePatch) st = { ...st, ...next.statePatch };
         if (next.finished) {
           count.get(next.finished.champion)!.champion++;
+          countPlayoffPromotion(ms, next.finished.champion);
           break;
         }
         pushSpecs(ms, next.create);
@@ -131,6 +143,7 @@ export function simulateProbabilities(
       }
       if (next.finished) {
         count.get(next.finished.champion)!.champion++;
+        countPlayoffPromotion(ms, next.finished.champion);
         break;
       }
       if (!next.create.length) break;
