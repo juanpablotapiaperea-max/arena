@@ -8,6 +8,29 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
     <title>ARENA</title>
+    <script>
+      // Si un archivo de la app (estilos o código) no carga porque se publicó una
+      // versión nueva, se recarga una sola vez para traer la versión actual.
+      (function () {
+        var KEY = 'arena:recarga-archivos';
+        window.addEventListener(
+          'error',
+          function (e) {
+            var t = e.target;
+            if (!t || (t.tagName !== 'LINK' && t.tagName !== 'SCRIPT')) return;
+            var url = t.href || t.src || '';
+            if (url.indexOf('/assets/') === -1) return;
+            try {
+              var last = Number(sessionStorage.getItem(KEY) || 0);
+              if (Date.now() - last < 60000) return;
+              sessionStorage.setItem(KEY, String(Date.now()));
+            } catch (_) {}
+            location.reload();
+          },
+          true
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
