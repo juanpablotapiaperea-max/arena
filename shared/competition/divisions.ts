@@ -102,3 +102,19 @@ export function sortRanking(rows: RankingRow[]): RankingRow[] {
     (a, b) => b.points - a.points || b.titles - a.titles || b.runnersUp - a.runnersUp || a.name.localeCompare(b.name, 'es'),
   );
 }
+
+const ROUND_RANK: Record<NonNullable<BestRound>, number> = { champion: 0, runnerUp: 1, semifinal: 2, quarterfinal: 3, roundOf16: 4, playoffs: 5 };
+
+/**
+ * Orden para el ascenso por liguilla: primero quien llegó más lejos (campeón,
+ * subcampeón, semifinalistas, cuartos…); a igual ronda, su lugar en la tabla regular.
+ * `eliminatedIn` es la ronda en que cayó cada equipo (sin ronda si no entró).
+ */
+export function playoffOrder(regularOrder: string[], eliminatedIn: Map<string, string>, champion: string | null): string[] {
+  const pos = new Map(regularOrder.map((t, i) => [t, i]));
+  const rank = (t: string) => {
+    const b = bestRoundFromElimination(eliminatedIn.get(t) ?? null, t === champion);
+    return b ? ROUND_RANK[b] : 9;
+  };
+  return [...regularOrder].sort((a, b) => rank(a) - rank(b) || (pos.get(a)! - pos.get(b)!));
+}

@@ -192,14 +192,15 @@ export function zoneOf(pos: number, n: number, z?: { top?: number; bottom?: numb
   return null;
 }
 
-export function ZoneLegend({ zones, topLabel }: { zones?: { top?: number; bottom?: number; promote?: number }; topLabel?: string }) {
+export function ZoneLegend({ zones, topLabel, note }: { zones?: { top?: number; bottom?: number; promote?: number }; topLabel?: string; note?: string }) {
   const items: [Zone, string][] = [];
   if (zones?.promote) items.push(['promote', `${ZONE_LABEL.promote} (${zones.promote})`]);
   if (zones?.top) items.push(['playoff', `${topLabel ?? ZONE_LABEL.playoff} (${zones.top})`]);
   if (zones?.bottom) items.push(['relegate', `${ZONE_LABEL.relegate} (${zones.bottom})`]);
-  if (!items.length) return null;
+  if (!items.length && !note) return null;
   return (
     <div className="flex flex-wrap gap-3 px-3 py-2 text-xs text-muted">
+      {note && <span className="w-full font-medium text-win">⬆ {note}</span>}
       {items.map(([z, label]) => (
         <span key={z} className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-1.5 rounded-sm" style={{ background: ZONE_COLOR[z] }} aria-hidden />
@@ -220,7 +221,7 @@ export function StandingsTable({
 }: {
   rows: Standing[];
   teams: Map<string, Team>;
-  zones?: { top?: number; topLabel?: string; bottom?: number; bottomLabel?: string; promote?: number };
+  zones?: { top?: number; topLabel?: string; bottom?: number; bottomLabel?: string; promote?: number; note?: string };
   probs?: Map<string, { champion: number; playoffs: number; relegation: number; promotion: number }>;
   highlight?: Set<string>;
   compact?: boolean;
@@ -293,7 +294,7 @@ export function StandingsTable({
       </table>
       {zones && (
         <div className="border-t border-line">
-          <ZoneLegend zones={zones} topLabel={zones.topLabel} />
+          <ZoneLegend zones={zones} topLabel={zones.topLabel} note={zones.note} />
         </div>
       )}
     </div>

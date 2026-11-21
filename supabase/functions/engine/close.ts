@@ -1,6 +1,8 @@
 // Cierre de temporada (sección 12): ascensos y descensos, progresión y retiros,
 // contratos, salarios y camisetas, nueva temporada, draft y mercado.
-import { applyMoves, divisionMoves } from '../../../shared/competition/divisions.ts';
+import { applyMoves, divisionMoves, playoffOrder } from '../../../shared/competition/divisions.ts';
+import { eliminationRounds } from '../../../shared/competition/edition.ts';
+import { MATCH_COLS, toMatchRow, type MatchDb } from './types.ts';
 import { createRng, gaussian, hashSeed } from '../../../shared/engine/rng.ts';
 import { salaryFor } from '../../../shared/data/generate.ts';
 import { AppError, all, getSetting, insertMany, q, type DB } from './db.ts';
@@ -13,7 +15,14 @@ async function divisionTables(db: DB, seasonId: string) {
     const e = eds.find((x) => x.config.competitionKey === key);
     if (!e) return null;
     const st = await q<{ team_id: string; position: number }[]>(db.from('edition_standings').select('team_id,position').eq('edition_id', e.id).order('position'));
-    return { edition: e, order: st.map((s) => s.team_id) };
+    let order = st.map((s) => s.team_id);
+    // Segunda: el ascenso sale de la liguilla (campeón, subcampeón, semifinalistas
+    // y los mejores eliminados en cuartos según la tabla regular).
+    if (key === 'segunda' && (e.config as { promotionVia?: string }).promotionVia !== 'table') {
+      const ms = await all<MatchDb>(() => db.from('matches').select(MATCH_COLS).eq('edition_id', e.id).eq('stage', 'playoff'));
+      if (ms.length) order = playoffOrder(order, eliminationRounds(ms.map(toMatchRow), e.config), e.champion_team_id);
+    }
+    return { edition: e, order };
   };
   return { primera: await table('primera'), segunda: await table('segunda'), editions: eds };
 }

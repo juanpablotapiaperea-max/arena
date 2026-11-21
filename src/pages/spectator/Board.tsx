@@ -241,7 +241,8 @@ function LeagueBoard({ e, matches, teams, rowsLimit, favs }: { e: Edition; match
   const lastResults = [...finished].sort((a, b) => (b.finished_at ?? '').localeCompare(a.finished_at ?? '')).slice(0, 8);
   const playoffTeams = Number(e.config.playoffTeams ?? 0);
   const relegated = Number(e.config.relegated ?? 0);
-  const promoted = Number(e.config.promoted ?? 0);
+  const promoted = e.config.promotionVia === 'table' ? Number(e.config.promoted ?? 0) : 0;
+  const promoNote = e.config.promoted && e.config.promotionVia !== 'table' ? `Ascienden ${e.config.promoted} por la liguilla` : undefined;
   const units = e.state?.units ?? [];
   const doneUnits = units.filter((u) => {
     const ms = matches?.filter((m) => m.unit_index === u.index) ?? [];
@@ -353,7 +354,7 @@ function LeagueBoard({ e, matches, teams, rowsLimit, favs }: { e: Edition; match
                 </AnimatePresence>
               </tbody>
             </table>
-            <ZoneLegend zones={{ top: playoffTeams || undefined, promote: promoted || undefined, bottom: relegated || undefined }} />
+            <ZoneLegend zones={{ top: playoffTeams || undefined, promote: promoted || undefined, bottom: relegated || undefined }} note={promoNote} />
           </div>
         ))
       )}

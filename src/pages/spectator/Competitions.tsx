@@ -134,7 +134,9 @@ function StandingsView({ e, rows, probs, favs, teams }: { e: Edition; rows?: imp
     top: e.config.format === 'groups_knockout' ? Number(e.config.qualifyPerGroup ?? 2) : Number(e.config.playoffTeams ?? 0) || undefined,
     topLabel: e.config.format === 'groups_knockout' ? 'Pasan a eliminatoria' : 'Playoffs',
     bottom: Number(e.config.relegated ?? 0) || undefined,
-    promote: Number(e.config.promoted ?? 0) || undefined,
+    // Segunda: el ascenso se decide en la liguilla, no en la tabla regular.
+    promote: e.config.promotionVia === 'table' ? Number(e.config.promoted ?? 0) || undefined : undefined,
+    note: e.config.promoted && e.config.promotionVia !== 'table' ? `Ascienden ${e.config.promoted} por la liguilla: campeón, subcampeón, semifinalistas y los mejores de cuartos (por tabla).` : undefined,
   };
   return (
     <div className={cn('grid gap-4', groups.length > 1 && 'md:grid-cols-2')}>

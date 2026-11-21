@@ -101,3 +101,8 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Ráfagas cada minuto; su tamaño crece para que todo termine en ~5 h. Vivos de 5 min con 30 s entre uno y otro; se programan tantos como quepan mientras corren las ráfagas.
 - «Indicar fin de temporada» (Planificador): reanuda el día en pausa, rehace los días planeados y reparte todo lo que falta hasta la fecha elegida, con hora límite por día. Los días arrancan solos (si uno se quedó sin jugar, se juega en cuanto se pueda).
 - Board: tablas de varias ligas recalculadas en el navegador con cada resultado recibido en tiempo real.
+
+### Ascenso de Segunda por liguilla
+- Ascienden 6: campeón y subcampeón de la liguilla de Segunda, los dos semifinalistas eliminados y los 2 mejores de los eliminados en cuartos (desempate: lugar en la tabla regular).
+- Descienden los 6 últimos de la tabla regular de Primera.
+- Para volver al ascenso por tabla, poner `promotionVia: "table"` en la configuración de Segunda. El administrador puede corregir todo en la vista previa del cierre.

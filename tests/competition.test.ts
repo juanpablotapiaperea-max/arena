@@ -188,3 +188,16 @@ describe('divisiones y ranking', () => {
     expect(sorted.map((r) => r.name)).toEqual(['Titans', 'Vikings', 'Black Horses', 'RHINOS']);
   });
 });
+
+import { playoffOrder } from '../shared/competition/divisions';
+describe('ascenso por liguilla', () => {
+  it('campeón, subcampeón, semifinalistas y los 2 mejores de cuartos por tabla', () => {
+    const table = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+    const elim = new Map([
+      ['A', 'cuartos'], ['B', 'semifinal'], ['C', 'cuartos'], ['D', 'final'],
+      ['E', 'cuartos'], ['F', 'semifinal'], ['G', 'cuartos'], ['I', 'octavos'],
+    ]);
+    // H es campeón; D subcampeón; B y F semis; de cuartos: A y C (mejor tabla) antes que E y G.
+    expect(playoffOrder(table, elim, 'H').slice(0, 6)).toEqual(['H', 'D', 'B', 'F', 'A', 'C']);
+  });
+});
