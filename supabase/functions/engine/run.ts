@@ -388,7 +388,7 @@ export async function snapshotProbabilities(db: DB, e: EditionRow, ms: MatchDb[]
   const engine = mergeEngineSettings(await getSetting<Partial<EngineSettings>>(db, 'engine', {}));
   const requested = (await getSetting<{ iterations: number }>(db, 'probabilities', { iterations: 10000 })).iterations;
   const remaining = ms.filter((m) => m.status !== 'finished').length + 20;
-  const iterations = iterationsFor(requested, remaining, 30_000);
+  const iterations = iterationsFor(requested, remaining, 8_000);
   const simTeams = new Map<string, SimTeam>(
     teams.map((t) => [t.id, { id: t.id, attack: Number(t.attack), defense: Number(t.defense), goalie: Number(t.goalie), style: t.play_style as PlayStyle }]),
   );

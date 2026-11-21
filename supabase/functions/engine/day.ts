@@ -367,9 +367,10 @@ async function runBurst(db: DB, item: ScheduleItem): Promise<number> {
     return 0;
   }
   // La última ráfaga del bloque se lleva todo lo que quede de la jornada.
-  const others = await q<{ id: string }[]>(
-    db.from('schedule_items').select('id').eq('block_id', item.block_id).eq('kind', 'burst').eq('status', 'pending').neq('id', item.id),
-  );
+  // Sin bloque (ráfagas de rescate), la ráfaga se lleva todo lo de su jornada.
+  const others = item.block_id
+    ? await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('block_id', item.block_id).eq('kind', 'burst').eq('status', 'pending').neq('id', item.id))
+    : [];
   const want = others.length ? Math.min(pending.length, item.burst_size ?? 4) : pending.length;
   // El servidor da muy poco procesador por vuelta: se simulan a lo más BURST_CAP
   // partidos y, si la ráfaga es más grande, el resto sale en la siguiente vuelta (15 s).
@@ -535,8 +536,12 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
     console.error('autoStart', e);
     return null;
   });
+  const orphaned = await scheduleOrphans(db).catch((e) => {
+    console.error('scheduleOrphans', e);
+    return 0;
+  });
   const days = await q<DayRow[]>(db.from('competition_days').select('*').eq('status', 'running'));
-  const log: string[] = [];
+  const log: string[] = orphaned ? [`huérfanos:${orphaned}`] : [];
   for (const day of days) {
     // Eventos en vivo que ya terminaron.
     const running = await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'running'));
@@ -552,12 +557,21 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
     // Pocas tareas por vuelta: el servidor corta las ejecuciones que gastan mucho
     // procesador; el motor despierta cada 15 s, así que no se pierde ritmo.
     let simulated = 0;
-    for (let guard = 0; guard < 6 && simulated < BURST_CAP && Date.now() - t < budgetMs; guard++) {
-      const due = await q<ScheduleItem[]>(
-        db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').lte('scheduled_at', new Date().toISOString()).order('scheduled_at').limit(1),
-      );
+    // Primero las ráfagas (resultados), luego vivos y cierre: un vivo que aún
+    // no puede empezar no le quita turno a los resultados.
+    const skip = new Set<string>();
+    for (let guard = 0; guard < 12 && Date.now() - t < budgetMs; guard++) {
+      const nowIso = new Date().toISOString();
+      let due = simulated < BURST_CAP
+        ? await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').eq('kind', 'burst').lte('scheduled_at', nowIso).order('scheduled_at').limit(5))
+        : [];
+      due = due.filter((d) => !skip.has(d.id));
+      if (!due.length) {
+        due = (await q<ScheduleItem[]>(db.from('schedule_items').select('*').eq('day_id', day.id).eq('status', 'pending').neq('kind', 'burst').lte('scheduled_at', nowIso).order('scheduled_at').limit(10))).filter((d) => !skip.has(d.id));
+      }
       const item = due[0];
       if (!item) break;
+      skip.add(item.id);
       if (item.kind === 'burst' || item.kind === 'event') {
         try {
           if (item.kind === 'burst') simulated += await runBurst(db, item);
@@ -570,13 +584,17 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
           continue;
         }
       } else if (item.kind === 'summary') {
-        const left = await q<{ id: string }[]>(db.from('schedule_items').select('id').eq('day_id', day.id).in('status', ['pending', 'running']).neq('kind', 'summary'));
+        const left = await q<{ scheduled_at: string }[]>(
+          db.from('schedule_items').select('scheduled_at').eq('day_id', day.id).in('status', ['pending', 'running']).neq('kind', 'summary').order('scheduled_at', { ascending: false }).limit(1),
+        );
         if (left.length) {
-          await postpone(db, item, 2);
-        } else {
-          await q(db.from('schedule_items').update({ status: 'done' }).eq('id', item.id));
-          await closeDay(db, day.id);
+          // Aún hay trabajo: el cierre se mueve detrás de lo último y la fila sigue.
+          const after = Math.max(Date.now(), Date.parse(left[0].scheduled_at)) + 2 * MIN;
+          await q(db.from('schedule_items').update({ scheduled_at: new Date(after).toISOString() }).eq('id', item.id));
+          continue;
         }
+        await q(db.from('schedule_items').update({ status: 'done' }).eq('id', item.id));
+        await closeDay(db, day.id);
         break;
       }
       // Lo que no pudo correr se pospuso a un minuto futuro: la cola sigue con lo demás.
@@ -857,4 +875,51 @@ export async function resequenceLives(db: DB) {
     await q(db.from('schedule_items').update({ scheduled_at: new Date(last + MIN).toISOString() }).eq('day_id', d).eq('kind', 'summary').eq('status', 'pending'));
   }
   return { items: updates.length, tracks: nTracks, endsAt: new Date(fAt).toISOString() };
+}
+
+/**
+ * Partidos huérfanos: de temporada regular, sin jugar y sin ningún elemento
+ * pendiente que los vaya a jugar (por ejemplo, de un día que se cerró antes de
+ * tiempo). Sin ellos la liguilla nunca puede empezar: se meten en ráfagas ya.
+ */
+export async function scheduleOrphans(db: DB) {
+  const days = await q<{ id: string }[]>(db.from('competition_days').select('id').eq('status', 'running').order('date', { ascending: false }).limit(1));
+  if (!days[0]) return 0;
+  const open = await q<{ edition_id: string | null; unit_index: number | null; match_id: string | null }[]>(
+    db.from('schedule_items').select('edition_id,unit_index,match_id').in('status', ['pending', 'running']),
+  );
+  const covered = new Set(open.map((i) => `${i.edition_id}|${i.unit_index}`));
+  const coveredMatch = new Set(open.map((i) => i.match_id).filter(Boolean));
+  const ms = await all<{ id: string; edition_id: string; unit_index: number; is_main_event: boolean; stage: string }>(() =>
+    db.from('matches').select('id,edition_id,unit_index,is_main_event,stage').eq('status', 'scheduled').neq('stage', 'playoff'),
+  );
+  const orphans = ms.filter((m) => !covered.has(`${m.edition_id}|${m.unit_index}`) && !coveredMatch.has(m.id));
+  if (!orphans.length) return 0;
+  // Derbis huérfanos pasan a ráfaga (su transmisión ya no se programó).
+  const mainIds = orphans.filter((m) => m.is_main_event).map((m) => m.id);
+  if (mainIds.length) await q(db.from('matches').update({ is_main_event: false }).in('id', mainIds));
+  const units = new Map<string, { edition_id: string; unit_index: number; n: number }>();
+  for (const m of orphans) {
+    const k = `${m.edition_id}|${m.unit_index}`;
+    const u = units.get(k) ?? { edition_id: m.edition_id, unit_index: m.unit_index, n: 0 };
+    u.n++;
+    units.set(k, u);
+  }
+  const eds = await q<{ id: string; name: string }[]>(db.from('editions').select('id,name').in('id', [...new Set(orphans.map((m) => m.edition_id))]));
+  const name = new Map(eds.map((e) => [e.id, e.name.split(' · ')[0]]));
+  const now = Date.now();
+  const rows = [...units.values()]
+    .sort((a, b) => a.unit_index - b.unit_index)
+    .map((u, i) => ({
+      day_id: days[0].id,
+      kind: 'burst',
+      edition_id: u.edition_id,
+      unit_index: u.unit_index,
+      burst_size: u.n,
+      sort_order: -100 + i,
+      scheduled_at: new Date(now - 60_000 + i * 1000).toISOString(),
+      label: `${name.get(u.edition_id)} · Jornada ${u.unit_index + 1} (pendiente)`,
+    }));
+  await insertMany(db, 'schedule_items', rows);
+  return orphans.length;
 }

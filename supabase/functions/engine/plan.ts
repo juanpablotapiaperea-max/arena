@@ -102,9 +102,11 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
   const finishedAny = await all<{ edition_id: string; unit_index: number }>(() =>
     db.from('matches').select('edition_id,unit_index').in('edition_id', editionIds).eq('status', 'finished'),
   );
-  const planned = await all<{ edition_id: string; unit_index: number }>(() =>
-    db.from('plan_blocks').select('edition_id,unit_index').in('edition_id', editionIds),
-  );
+  // Lo planeado en días ya cerrados no cuenta: si no se jugó, se vuelve a planear.
+  const closedDays = new Set((await q<{ id: string }[]>(db.from('competition_days').select('id').eq('status', 'closed'))).map((d) => d.id));
+  const planned = (
+    await all<{ edition_id: string; unit_index: number; day_id: string }>(() => db.from('plan_blocks').select('edition_id,unit_index,day_id').in('edition_id', editionIds))
+  ).filter((b) => !closedDays.has(b.day_id));
   const eds = await q<EditionRow[]>(db.from('editions').select('*').in('id', editionIds).neq('status', 'finished'));
 
   const queues = eds.map((e) => {
