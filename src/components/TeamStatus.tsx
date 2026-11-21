@@ -7,7 +7,9 @@ import { Badge } from './ui';
 
 export interface TeamStatus {
   justMoved: 'promoted' | 'relegated' | null;
-  seasonsWithout: number;
+  division: 1 | 2 | null;
+  /** Temporadas completas desde el último ascenso o descenso del equipo. */
+  streak: number;
   sinceDate: string | null;
   season: number;
 }
@@ -28,25 +30,27 @@ export function useTeamStatus() {
       const numberOf = new Map(list.map((s) => [s.id, s.number]));
       const closedOf = new Map(list.map((s) => [s.number, s.closed_at]));
       const first = list.find((s) => s.number === 1);
-      type Acc = { justMoved: TeamStatus['justMoved']; lastRel: number };
+      // Último movimiento (ascenso o descenso) y si ocurrió en la temporada actual.
+      type Acc = { justMoved: TeamStatus['justMoved']; lastMove: number };
       const acc = new Map<string, Acc>();
       const ms = (moves ?? []) as { team_id: string; kind: 'promoted' | 'relegated'; season_id: string }[];
       for (const m of ms) {
         const n = numberOf.get(m.season_id) ?? 0;
-        const cur: Acc = acc.get(m.team_id) ?? { justMoved: null, lastRel: 0 };
-        if (m.kind === 'relegated' && n > cur.lastRel) cur.lastRel = n;
+        const cur: Acc = acc.get(m.team_id) ?? { justMoved: null, lastMove: 0 };
+        if (n > cur.lastMove) cur.lastMove = n;
         if (n === C) cur.justMoved = m.kind;
         acc.set(m.team_id, cur);
       }
-      // Racha para todos los equipos (sin descenso previo cuenta desde el inicio de la liga).
+      // Equipos en su división desde el último cambio. Quien acaba de cambiar no tiene racha.
       const result = new Map<string, TeamStatus>();
-      const allTeams = await db().from('teams').select('id');
-      for (const t of allTeams.data ?? []) {
-        const cur: Acc = acc.get(t.id) ?? { justMoved: null, lastRel: 0 };
-        const L = cur.lastRel;
+      const allTeams = await db().from('teams').select('id,division');
+      for (const t of (allTeams.data ?? []) as { id: string; division: 1 | 2 | null }[]) {
+        const cur: Acc = acc.get(t.id) ?? { justMoved: null, lastMove: 0 };
+        const L = cur.lastMove;
         result.set(t.id, {
           justMoved: cur.justMoved,
-          seasonsWithout: L ? Math.max(0, C - L) : Math.max(0, C - 1),
+          division: t.division,
+          streak: cur.justMoved ? 0 : L ? Math.max(0, C - L) : Math.max(0, C - 1),
           sinceDate: (L ? closedOf.get(L - 1) : first?.started_at) ?? null,
           season: C,
         });
@@ -79,9 +83,10 @@ export function TeamStatusTags({ teamId, status, compact = false }: { teamId: st
           <ArrowDown size={12} className="inline" aria-hidden /> {compact ? 'Descendido' : 'Recién descendido'}
         </Badge>
       )}
-      {s.seasonsWithout >= 1 && (
+      {!s.justMoved && s.streak >= 1 && (
         <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2 py-0.5 text-[11px] font-semibold text-secondary" title={days != null ? `Desde hace ${days} días` : undefined}>
-          <Flame size={12} aria-hidden /> {s.seasonsWithout} {s.seasonsWithout === 1 ? 'temporada' : 'temporadas'} sin descender
+          <Flame size={12} aria-hidden />
+          {s.streak} {s.streak === 1 ? 'temporada' : 'temporadas'} sin {s.division === 2 ? 'ascender' : 'descender'}
           {!compact && days != null && days > 0 ? <span className="font-normal text-secondary/70"> · {days} días</span> : null}
         </span>
       )}
