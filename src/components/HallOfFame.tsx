@@ -28,15 +28,36 @@ export interface AwardRow {
 const KIND_ICON = { top_scorer: Goal, top_assists: Handshake, mvp: Star, best_goalie: Shield, balon_oro: Crown } as const;
 const KIND_COLOR = { top_scorer: '#f97316', top_assists: '#38bdf8', mvp: '#a855f7', best_goalie: '#22c55e', balon_oro: '#facc15' } as const;
 
-function usePlayerNames() {
+type NameInfo = { name: string; number: number; position: string; team: string | null };
+
+/**
+ * Nombres de jugadores activos y retirados. Los récords históricos conservan a
+ * sus jugadores aunque ya se hayan retirado, así que se piden por id también.
+ */
+function usePlayerNames(extraIds: string[] = []) {
   const all = usePlayers();
-  return useMemo(() => new Map((all.data ?? []).map((p) => [p.id, { name: `${p.first_name} ${p.last_name}`, number: p.number, position: p.position, team: p.team_id }])), [all.data]);
+  const key = [...new Set(extraIds)].sort().join(',');
+  const extra = useQuery({
+    queryKey: ['player-names', key],
+    enabled: !DEMO_MODE && key.length > 0,
+    queryFn: async () => {
+      const ids = key.split(',');
+      const { data } = await db().from('players').select('id,first_name,last_name,number,position,team_id').in('id', ids);
+      return (data ?? []) as { id: string; first_name: string; last_name: string; number: number; position: string; team_id: string | null }[];
+    },
+    staleTime: 5 * 60_000,
+  });
+  return useMemo(() => {
+    const m = new Map<string, NameInfo>();
+    for (const p of all.data ?? []) m.set(p.id, { name: `${p.first_name} ${p.last_name}`, number: p.number, position: p.position, team: p.team_id });
+    for (const p of extra.data ?? []) m.set(p.id, { name: `${p.first_name} ${p.last_name}`, number: p.number, position: p.position, team: p.team_id });
+    return m;
+  }, [all.data, extra.data]);
 }
 
 /** Vitrina, placas y premios de un equipo. */
 export function TeamHallOfFame({ team }: { team: Team }) {
   const reduce = useReducedMotion();
-  const names = usePlayerNames();
   const legacy = useQuery({
     queryKey: ['legacy-team', team.id],
     enabled: !DEMO_MODE,
@@ -87,6 +108,10 @@ export function TeamHallOfFame({ team }: { team: Team }) {
   const topMvp = [...recs].sort((a, b) => b.mvps - a.mvps)[0];
   const topGp = [...recs].sort((a, b) => b.gp - a.gp)[0];
   const totalTitles = cabinet.reduce((s, [, r]) => s + r.titles, 0);
+  const names = usePlayerNames([
+    ...recs.flatMap((r) => [r.player_id]),
+    ...(awards.data ?? []).flatMap((a) => (a.player_id ? [a.player_id] : [])),
+  ]);
 
   return (
     <section className="space-y-4">
@@ -130,12 +155,12 @@ export function TeamHallOfFame({ team }: { team: Team }) {
 
       {/* Placas de récords */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Plaque icon={Goal} title="Máximo goleador" stat={topGoals?.goals} unit="goles" player={topGoals && names.get(topGoals.player_id)} team={team} />
-        <Plaque icon={Handshake} title="Máximo asistidor" stat={topAssists?.assists} unit="asistencias" player={topAssists && names.get(topAssists.player_id)} team={team} />
-        <Plaque icon={Star} title="Más veces MVP" stat={topMvp?.mvps} unit="MVP" player={topMvp && names.get(topMvp.player_id)} team={team} />
-        <Plaque icon={Award} title="Más partidos" stat={topGp?.gp} unit="partidos" player={topGp && names.get(topGp.player_id)} team={team} />
+        <Plaque icon={Goal} title="Máximo goleador histórico" stat={topGoals?.goals} unit="goles" player={topGoals && names.get(topGoals.player_id)} team={team} />
+        <Plaque icon={Handshake} title="Máximo asistidor histórico" stat={topAssists?.assists} unit="asistencias" player={topAssists && names.get(topAssists.player_id)} team={team} />
+        <Plaque icon={Star} title="Más MVP histórico" stat={topMvp?.mvps} unit="MVP" player={topMvp && names.get(topMvp.player_id)} team={team} />
+        <Plaque icon={Award} title="Más partidos histórico" stat={topGp?.gp} unit="partidos" player={topGp && names.get(topGp.player_id)} team={team} />
       </div>
-      <p className="text-xs text-muted">Récords con la camiseta del club desde la primera temporada de ARENA (el historial anterior no guardaba estadísticas de jugadores).</p>
+      <p className="text-xs text-muted">Récords históricos con la camiseta del club, incluidos jugadores ya retirados. Desde la primera temporada de ARENA (el historial anterior no guardaba estadísticas de jugadores).</p>
 
       {/* Premios individuales */}
       <div className="card p-4">
