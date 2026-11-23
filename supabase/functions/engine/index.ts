@@ -2,7 +2,7 @@
 // Rutas por `action`. El cron llama a `tick` con el secreto del servidor.
 import { AppError, q, serviceClient, userClient } from './db.ts';
 import { createEdition } from './season.ts';
-import { addBlock, createDay, deleteDay, generatePlan, getPlan, mergeDays, moveBlock, publishDay, removeBlock, unplanned } from './plan.ts';
+import { addBlock, createDay, deleteDay, generatePlan, getPlan, mergeDays, moveBlock, publishDay, removeBlock, setPlayoffStart, unplanned } from './plan.ts';
 import { cancelItem, closeDay, compactDay, resequenceLives, dayStatus, forceItem, pauseDay, resumeDay, setMatchEvent, shiftItem, startDay, tick } from './day.ts';
 import { longTermOdds, oddsForMatch, placeBet } from './bets.ts';
 import { simulateUnitNow, snapshotProbabilities, editionMatches } from './run.ts';
@@ -45,6 +45,7 @@ const ADMIN = new Set([
   'season.finishBy',
   'awards.balonOro',
   'season.recordMovements',
+  'edition.setPlayoffStart',
   'item.shift',
   'item.cancel',
   'item.force',
@@ -147,6 +148,8 @@ Deno.serve(async (req) => {
         await compactDay(db, body.dayId);
         await resequenceLives(db);
         return json(await dayStatus(db, body.dayId));
+      case 'edition.setPlayoffStart':
+        return json(await setPlayoffStart(db, String(body.editionId ?? ''), body.date ? String(body.date) : null));
       case 'season.recordMovements': {
         // Reconstruye los ascensos y descensos del cierre anterior (temporada activa = la nueva).
         const active = await q<{ id: string; number: number }>(db.from('seasons').select('id,number').eq('status', 'active').single());

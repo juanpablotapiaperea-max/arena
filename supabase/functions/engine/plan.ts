@@ -120,6 +120,12 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
   });
 
   const interestOf = (q0: (typeof queues)[number], u: Unit) => unitInterest(u, q0.regular, Number(q0.e.config.weight ?? 1));
+  // Fecha de inicio de eliminatorias: antes de ese día solo jornadas de liga; desde ese día solo eliminatorias.
+  const dayOk = (e: EditionRow, u: Unit, date: string) => {
+    const start = (e.config as { playoffStart?: string }).playoffStart;
+    if (!start) return true;
+    return u.stage === 'playoff' ? date >= start : date < start;
+  };
   const totalInterest = queues.reduce((s, x) => s + x.pending.reduce((t, u) => t + interestOf(x, u), 0), 0);
   const target = totalInterest / days.length;
   // El tope diario crece lo necesario para que todo lo elegido termine en los
@@ -131,6 +137,7 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
   const blocks: Record<string, unknown>[] = [];
   for (let d = 0; d < days.length; d++) {
     const isLast = d === days.length - 1;
+    const date = days[d].date;
     let interest = 0;
     let matches = 0;
     let lives = 0;
@@ -143,7 +150,7 @@ export async function generatePlan(db: DB, dates: string[], editionIds: string[]
       const next = candidates.find((x) => {
         const u = x.pending[x.cursor];
         const m = u.main ? 0 : u.matches;
-        return matches + m <= maxMatches && lives + liveOf(u) <= cal.maxLiveEventsPerDay;
+        return dayOk(x.e, u, date) && matches + m <= maxMatches && lives + liveOf(u) <= cal.maxLiveEventsPerDay;
       });
       if (!next) break;
       // Reparto parejo: cada día lleva la misma cantidad de partidos (o de interés
@@ -204,11 +211,38 @@ export async function getPlan(db: DB, dayIds?: string[]) {
         blocks: bs,
       };
     }),
-    warnings: validate(days, blocks),
+    warnings: [...validate(days, blocks), ...(await playoffWarnings(db, days, blocks))],
   };
 }
 
 /** Reglas: cada competición en orden; finales al final del día; tope de eventos en vivo. */
+/** Avisos de la fecha de inicio de eliminatorias: qué jornadas quedaron del lado equivocado. */
+async function playoffWarnings(db: DB, days: { id: string; date: string }[], blocks: PlanBlock[]): Promise<string[]> {
+  const warnings: string[] = [];
+  const eids = [...new Set(blocks.map((b) => b.edition_id).filter(Boolean))] as string[];
+  if (!eids.length) return warnings;
+  const eds = await q<{ id: string; name: string; config: Record<string, unknown>; state: { units: { index: number; stage: string; label: string }[] } }[]>(
+    db.from('editions').select('id,name,config,state').in('id', eids),
+  );
+  const dateOf = new Map(days.map((d) => [d.id, d.date]));
+  const isPlayoffLabel = (label: string) => /(Dieciseis|Octavos|Cuartos|Semifinal|Final|Ronda previa)/i.test(label);
+  for (const e of eds) {
+    const start = e.config.playoffStart as string | undefined;
+    if (!start) continue;
+    const name = e.name.split(' · ')[0];
+    const label = new Date(`${start}T12:00:00`).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
+    const eb = blocks.filter((b) => b.edition_id === e.id);
+    const early = eb.filter((b) => isPlayoffLabel(b.label) && (dateOf.get(b.day_id) ?? '') < start).length;
+    if (early) warnings.push(`${name}: ${early} eliminatorias quedaron antes del ${label}. Cambia la fecha de inicio o vuelve a generar el plan.`);
+    const late = eb.filter((b) => !isPlayoffLabel(b.label) && (dateOf.get(b.day_id) ?? '') >= start).length;
+    if (late) warnings.push(`${name}: ${late} jornadas de liga quedaron desde el ${label}, cuando deben empezar las eliminatorias.`);
+    const planned = new Set(eb.map((b) => b.unit_index));
+    const missing = e.state.units.filter((u) => u.stage !== 'playoff' && !planned.has(u.index)).length;
+    if (missing) warnings.push(`${name}: ${missing} jornadas de liga no caben antes del ${label}. Agrega días antes de esa fecha o cambia la fecha.`);
+  }
+  return warnings;
+}
+
 function validate(days: { id: string; date: string }[], blocks: PlanBlock[]): string[] {
   const warnings: string[] = [];
   const dayIndex = new Map(days.map((d, i) => [d.id, i]));
@@ -350,3 +384,15 @@ export async function publishDay(db: DB, dayId: string, published: boolean) {
 }
 
 export { editionsWithUnits };
+
+/** Fecha en la que empiezan las eliminatorias de un torneo (YYYY-MM-DD) o nada. */
+export async function setPlayoffStart(db: DB, editionId: string, date: string | null) {
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('Fecha inválida');
+  const e = await q<{ config: Record<string, unknown>; status: string }>(db.from('editions').select('config,status').eq('id', editionId).single());
+  if (e.status === 'finished') throw new AppError('Esa competición ya terminó');
+  const config = { ...e.config };
+  if (date) config.playoffStart = date;
+  else delete config.playoffStart;
+  await q(db.from('editions').update({ config }).eq('id', editionId));
+  return { ok: true, playoffStart: date };
+}
