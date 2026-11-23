@@ -893,7 +893,15 @@ export async function scheduleOrphans(db: DB) {
   const ms = await all<{ id: string; edition_id: string; unit_index: number; is_main_event: boolean; stage: string }>(() =>
     db.from('matches').select('id,edition_id,unit_index,is_main_event,stage').eq('status', 'scheduled').neq('stage', 'playoff'),
   );
-  const orphans = ms.filter((m) => !covered.has(`${m.edition_id}|${m.unit_index}`) && !coveredMatch.has(m.id));
+  // Solo es huérfano lo que SÍ se planeó en un día que ya cerró sin jugarlo. Lo que
+  // nunca se planeó (por ejemplo, un torneo arrancado pero que no elegiste para
+  // ningún día) no se toca: se juega cuando tú lo pongas en el calendario.
+  const closed = (await q<{ id: string }[]>(db.from('competition_days').select('id').eq('status', 'closed'))).map((d) => d.id);
+  const plannedInClosed = closed.length
+    ? await all<{ edition_id: string; unit_index: number }>(() => db.from('plan_blocks').select('edition_id,unit_index').in('day_id', closed))
+    : [];
+  const wasPlanned = new Set(plannedInClosed.map((b) => `${b.edition_id}|${b.unit_index}`));
+  const orphans = ms.filter((m) => wasPlanned.has(`${m.edition_id}|${m.unit_index}`) && !covered.has(`${m.edition_id}|${m.unit_index}`) && !coveredMatch.has(m.id));
   if (!orphans.length) return 0;
   // Derbis huérfanos pasan a ráfaga (su transmisión ya no se programó).
   const mainIds = orphans.filter((m) => m.is_main_event).map((m) => m.id);

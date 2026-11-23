@@ -48,9 +48,13 @@ export function BoardPage() {
   const [tv, setTv] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
 
-  const candidates = (editions.data ?? []).filter((e) => TABLE_FORMATS.has(e.config.format) && e.status !== 'setup');
+  // Solo la temporada en curso (la más reciente con ediciones); las anteriores quedan en Historia.
+  const latestSeason = (editions.data ?? []).reduce<string | null>((acc, e) => acc ?? e.season_id ?? null, null);
+  const candidates = (editions.data ?? []).filter((e) => TABLE_FORMATS.has(e.config.format) && e.status !== 'setup' && (!latestSeason || e.season_id === latestSeason));
   const active = candidates.filter((e) => e.status !== 'finished');
-  const selected = (prefs.ids.length ? candidates.filter((e) => prefs.ids.includes(e.id)) : active).slice(0, 6);
+  // Si la selección guardada era de otra temporada, se vuelve a mostrar lo que está en curso.
+  const saved = candidates.filter((e) => prefs.ids.includes(e.id));
+  const selected = (saved.length ? saved : active.length ? active : candidates).slice(0, 6);
   const ids = selected.map((e) => e.id);
 
   useEffect(() => {
@@ -94,7 +98,7 @@ export function BoardPage() {
 
   const toggle = (id: string) =>
     setPrefs((p) => {
-      const cur = p.ids.length ? p.ids : active.map((e) => e.id);
+      const cur = saved.length ? saved.map((e) => e.id) : selected.map((e) => e.id);
       return { ...p, ids: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
     });
 
