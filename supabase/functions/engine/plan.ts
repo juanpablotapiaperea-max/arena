@@ -394,5 +394,49 @@ export async function setPlayoffStart(db: DB, editionId: string, date: string | 
   if (date) config.playoffStart = date;
   else delete config.playoffStart;
   await q(db.from('editions').update({ config }).eq('id', editionId));
-  return { ok: true, playoffStart: date };
+  // La fecha manda también sobre lo que ya estaba planeado (incluso en un día en curso).
+  const moved = date ? await enforcePlayoffStart(db, editionId) : 0;
+  return { ok: true, playoffStart: date, moved };
+}
+
+/**
+ * Las eliminatorias de un torneo no se juegan antes de su fecha de inicio: las
+ * rondas que estén en días anteriores (planeados o en curso, sin haber empezado)
+ * pasan al primer día planeado desde esa fecha; si no hay ninguno, quedan sin
+ * planear para ponerlas después. Devuelve cuántas rondas movió.
+ */
+export async function enforcePlayoffStart(db: DB, editionId: string): Promise<number> {
+  const e = await q<{ config: Record<string, unknown>; state: { units?: Unit[] } }>(db.from('editions').select('config,state').eq('id', editionId).single());
+  const start = e.config.playoffStart as string | undefined;
+  if (!start) return 0;
+  const playoff = new Set((e.state.units ?? []).filter((u) => u.stage === 'playoff').map((u) => u.index));
+  if (!playoff.size) return 0;
+  const days = await q<{ id: string; date: string; status: string }[]>(db.from('competition_days').select('id,date,status').neq('status', 'closed'));
+  const early = days.filter((d) => d.date < start).map((d) => d.id);
+  if (!early.length) return 0;
+  const blocks = await q<{ id: string; unit_index: number }[]>(
+    db.from('plan_blocks').select('id,unit_index').eq('edition_id', editionId).in('day_id', early),
+  );
+  let move = blocks.filter((b) => playoff.has(b.unit_index));
+  if (!move.length) return 0;
+  // Una ronda que ya empezó a jugarse se termina donde está.
+  const started = await q<{ unit_index: number }[]>(
+    db.from('schedule_items').select('unit_index').eq('edition_id', editionId).in('day_id', early).in('status', ['running', 'done']).in('unit_index', move.map((b) => b.unit_index)),
+  );
+  const busy = new Set(started.map((s) => s.unit_index));
+  move = move.filter((b) => !busy.has(b.unit_index));
+  if (!move.length) return 0;
+  const units = move.map((b) => b.unit_index);
+  await q(db.from('schedule_items').update({ status: 'cancelled' }).eq('edition_id', editionId).in('day_id', early).in('unit_index', units).eq('status', 'pending'));
+  const target = days.filter((d) => d.status === 'planned' && d.date >= start).sort((a, b) => a.date.localeCompare(b.date))[0];
+  if (!target) {
+    await q(db.from('plan_blocks').delete().in('id', move.map((b) => b.id)));
+    return move.length;
+  }
+  const last = await q<{ sort_order: number }[]>(db.from('plan_blocks').select('sort_order').eq('day_id', target.id).order('sort_order', { ascending: false }).limit(1));
+  let order = (last[0]?.sort_order ?? -1) + 1;
+  for (const b of [...move].sort((x, y) => x.unit_index - y.unit_index)) {
+    await q(db.from('plan_blocks').update({ day_id: target.id, sort_order: order++, status: 'pending' }).eq('id', b.id));
+  }
+  return move.length;
 }

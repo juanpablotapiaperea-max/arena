@@ -3,7 +3,7 @@
 import { AppError, all, getSetting, insertMany, q, type DB } from './db.ts';
 import { closeUnits, commitResults, editionMatches, loadContext, simulate, type SimPayload } from './run.ts';
 import { newsDay, newsLiveEvent } from './news.ts';
-import { DEFAULT_CALENDAR, type CalendarSettings } from './plan.ts';
+import { DEFAULT_CALENDAR, enforcePlayoffStart, type CalendarSettings } from './plan.ts';
 import { MATCH_COLS, type DayRow, type EditionRow, type MatchDb, type ScheduleItem } from './types.ts';
 import type { Unit } from '../../../shared/competition/edition.ts';
 
@@ -341,6 +341,13 @@ async function ensureUnit(db: DB, editionId: string, unitIndex: number): Promise
   const unit = (u: number) => all<MatchDb>(() => db.from('matches').select(MATCH_COLS).eq('edition_id', editionId).eq('unit_index', u).order('id'));
   let ms = await unit(unitIndex);
   if (ms.length) return ms;
+  // Si falta algún partido de jornadas anteriores la ronda aún no puede armarse.
+  // Se revisa barato antes de recalcular la competición (es lo más pesado y,
+  // repetido cada 15 s, agotaba al servidor).
+  const missing = await q<{ id: string }[]>(
+    db.from('matches').select('id').eq('edition_id', editionId).lt('unit_index', unitIndex).neq('status', 'finished').limit(1),
+  );
+  if (missing.length) return [];
   const prev = await unit(unitIndex - 1);
   if (prev.length && prev.every((m) => m.status === 'finished')) {
     await closeUnits(db, editionId, [unitIndex - 1]);
@@ -560,6 +567,7 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
     // Primero las ráfagas (resultados), luego vivos y cierre: un vivo que aún
     // no puede empezar no le quita turno a los resultados.
     const skip = new Set<string>();
+    const editionCache = new Map<string, { start?: string; playoff: Set<number> }>();
     for (let guard = 0; guard < 12 && Date.now() - t < budgetMs; guard++) {
       const nowIso = new Date().toISOString();
       let due = simulated < BURST_CAP
@@ -573,6 +581,15 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
       if (!item) break;
       skip.add(item.id);
       if (item.kind === 'burst' || item.kind === 'event') {
+        // Eliminatorias con fecha de inicio posterior a este día: se van a su fecha.
+        if (item.edition_id && item.unit_index != null && (await beforePlayoffDate(db, item, day.date, editionCache))) {
+          await enforcePlayoffStart(db, item.edition_id);
+          const fresh = await q<{ status: string }[]>(db.from('schedule_items').select('status').eq('id', item.id));
+          if (!fresh[0] || fresh[0].status !== 'pending') {
+            log.push(`aplazado:${item.label}`);
+            continue;
+          }
+        }
         try {
           if (item.kind === 'burst') simulated += await runBurst(db, item);
           else await startLive(db, item);
@@ -603,6 +620,20 @@ async function tickInner(db: DB, budgetMs: number, t: number) {
     }
   }
   return { ran: log, started, ms: Date.now() - t };
+}
+
+/** ¿Es una ronda de eliminatorias que, por su fecha de inicio, aún no toca este día? */
+async function beforePlayoffDate(db: DB, item: ScheduleItem, date: string, cache: Map<string, { start?: string; playoff: Set<number> }>) {
+  let info = cache.get(item.edition_id!);
+  if (!info) {
+    const e = await q<{ config: Record<string, unknown>; state: { units?: Unit[] } }>(db.from('editions').select('config,state').eq('id', item.edition_id!).single());
+    info = {
+      start: e.config.playoffStart as string | undefined,
+      playoff: new Set((e.state.units ?? []).filter((u) => u.stage === 'playoff').map((u) => u.index)),
+    };
+    cache.set(item.edition_id!, info);
+  }
+  return !!info.start && date < info.start && info.playoff.has(item.unit_index!);
 }
 
 export async function closeDay(db: DB, dayId: string) {

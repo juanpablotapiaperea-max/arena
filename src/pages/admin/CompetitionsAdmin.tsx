@@ -700,12 +700,18 @@ function PlayoffStartField({ e }: { e: Edition }) {
     setBusy(true);
     setError(null);
     try {
-      await engine("edition.setPlayoffStart", { editionId: e.id, date: value });
+      const res = await engine<{ moved?: number }>("edition.setPlayoffStart", {
+        editionId: e.id,
+        date: value,
+      });
       await qc.invalidateQueries({ queryKey: ["editions"] });
       await qc.invalidateQueries({ queryKey: ["plan"] });
+      await qc.invalidateQueries({ queryKey: ["day"] });
       say(
         value
-          ? "Fecha de eliminatorias guardada"
+          ? res?.moved
+            ? `Fecha guardada. ${res.moved} rondas que estaban antes se movieron a su fecha.`
+            : "Fecha de eliminatorias guardada"
           : "Fecha de eliminatorias quitada",
       );
     } catch (err) {

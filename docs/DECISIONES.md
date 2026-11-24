@@ -111,3 +111,8 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Al terminar cada competición se entregan solos: Goleador, Asistidor, MVP del torneo (más MVP de partido) y Mejor portero (más porterías en cero, luego % de atajadas; mínimo 25% de los partidos).
 - Cada equipo tiene vitrina (títulos del historial y de ARENA), placas de récords con su camiseta (goles, asistencias, MVP, partidos) y los premios de sus jugadores.
 - Balón de Oro: la fórmula propone 10 nominados (goles 1, asistencias 0.75, MVP 2, gol del triunfo 1, hat-trick 2, portería en cero 3, atajadas 0.025; jugador clave: 120 × su parte de la producción del equipo, portero titular ≈ 10%; campeón 30, subcampeón 18, semifinal 10; todo × peso del torneo). Segunda División no cuenta. El puntaje solo lo ve el administrador; los espectadores ven a los nominados en orden alfabético con estadísticas, edad y logros. El administrador elige al ganador en Admin → Premios.
+
+### Fecha de inicio de eliminatorias
+- Cada torneo puede tener una fecha en la que empiezan sus eliminatorias (Admin → Competiciones). El planificador pone la liga antes y las eliminatorias desde ese día.
+- La fecha manda también sobre lo ya planeado: al guardarla, y cada vez que el motor va a jugar una ronda, las eliminatorias que estén en un día anterior (planeado o en curso, sin haber empezado) pasan al primer día planeado desde esa fecha; si no hay ninguno, quedan sin planear para ponerlas después.
+- Una ronda no se arma mientras falte algún partido de jornadas anteriores (revisión barata antes de recalcular la competición).
