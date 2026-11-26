@@ -120,3 +120,5 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 
 ### Lesiones por partidos
 - Una lesión dura de 1 a 10 partidos de su equipo (antes eran días de competencia; con decenas de partidos al día se acumulaban y llegó a haber 38% de jugadores lesionados). Cada partido que juega el equipo, sus lesionados descuentan uno. El cansancio sigue pendiente para el cierre de temporada.
+- Balón de Oro v3: la parte de la producción del equipo se mide contra sus goles reales del marcador (los goles de suplentes de relleno, cuando había muchas lesiones, no quedaron a nombre de nadie e inflaban a los pocos que sí sumaban), con un colchón de 10 para torneos cortos. Atajadas 0.015.
+- Se repitieron con equipos sanos las eliminatorias jugadas con lesionados el 26 de noviembre (un cuarto de Primera y una semi de Segunda): se deshizo su resultado, estadísticas, taquilla y moral.
