@@ -15,7 +15,7 @@ export interface EnginePlayer {
   rating: number;
   form: number; // 0-100
   morale: number; // 0-100
-  injuryDays: number; // días de competencia restantes de lesión (0 = sano)
+  injuryDays: number; // partidos de su equipo que le faltan para volver de la lesión (0 = sano)
 }
 
 export interface Lineup {
