@@ -103,6 +103,19 @@ async function buildDay(db: DB, day: DayRow, dayId: string, mode: 'real' | 'now'
   // Se permite arrancar aunque otro día siga en curso: corren en paralelo y los
   // eventos en vivo hacen fila entre todos los días.
   const blocks = await q<Block[]>(db.from('plan_blocks').select('*').eq('day_id', dayId).eq('kind', 'unit').order('sort_order'));
+  // Dentro de cada torneo, siempre en orden (jornada 1 antes que 2, cuartos antes
+  // que semis), aunque en el planificador hayan quedado al revés. Se respeta cómo
+  // se intercalan los torneos entre sí.
+  const byEdition = new Map<string, number[]>();
+  blocks.forEach((b, i) => {
+    const k = b.edition_id ?? '';
+    if (!byEdition.has(k)) byEdition.set(k, []);
+    byEdition.get(k)!.push(i);
+  });
+  for (const idx of byEdition.values()) {
+    const sorted = idx.map((i) => blocks[i]).sort((a, b) => a.unit_index - b.unit_index);
+    idx.forEach((i, j) => (blocks[i] = sorted[j]));
+  }
   if (!blocks.length) throw new AppError('El día no tiene jornadas planeadas');
 
   await q(db.rpc('begin_competition_day'));
@@ -432,10 +445,21 @@ async function startLive(db: DB, item: ScheduleItem): Promise<void> {
   // Rondas de eliminación: nunca antes que la ronda anterior de su competición
   // (ida antes que vuelta). Los clásicos de liga no esperan.
   if (!item.match_id && item.edition_id != null && item.unit_index != null) {
-    const earlier = await q<{ id: string }[]>(
-      db.from('schedule_items').select('id').eq('kind', 'event').eq('edition_id', item.edition_id).lt('unit_index', item.unit_index).in('status', ['pending', 'running']).limit(1),
+    const earlier = await q<{ id: string; status: string; scheduled_at: string; match_id: string | null }[]>(
+      db.from('schedule_items').select('id,status,scheduled_at,match_id').eq('kind', 'event').eq('edition_id', item.edition_id).lt('unit_index', item.unit_index).in('status', ['pending', 'running']).order('scheduled_at').limit(50),
     );
-    if (earlier.length) return postpone(db, item, 1);
+    if (earlier.length) {
+      // Si la ronda anterior quedó programada después (por ejemplo, semis antes que
+      // cuartos), se intercambian los turnos: la anterior juega ya y nadie espera en vano.
+      const first = earlier.find((x) => x.status === 'pending');
+      if (!earlier.some((x) => x.status === 'running') && first && Date.parse(first.scheduled_at) > Date.parse(item.scheduled_at)) {
+        await q(db.from('schedule_items').update({ scheduled_at: item.scheduled_at }).eq('id', first.id));
+        await q(db.from('schedule_items').update({ scheduled_at: first.scheduled_at }).eq('id', item.id));
+        if (first.match_id) await q(db.from('matches').update({ scheduled_at: item.scheduled_at }).eq('id', first.match_id));
+        return;
+      }
+      return postpone(db, item, 1);
+    }
   }
   let matchId = item.match_id;
   if (!matchId) {

@@ -116,3 +116,4 @@ Registro de lo que la especificación no definía o donde chocaba con otra cosa.
 - Cada torneo puede tener una fecha en la que empiezan sus eliminatorias (Admin → Competiciones). El planificador pone la liga antes y las eliminatorias desde ese día.
 - La fecha manda también sobre lo ya planeado: al guardarla, y cada vez que el motor va a jugar una ronda, las eliminatorias que estén en un día anterior (planeado o en curso, sin haber empezado) pasan al primer día planeado desde esa fecha; si no hay ninguno, quedan sin planear para ponerlas después.
 - Una ronda no se arma mientras falte algún partido de jornadas anteriores (revisión barata antes de recalcular la competición).
+- Al arrancar un día, las rondas de cada torneo se ordenan solas (cuartos antes que semis, jornada 1 antes que 2), respetando cómo se intercalan los torneos. Si aun así una ronda queda antes que la anterior, el motor les intercambia el turno en lugar de esperar.
