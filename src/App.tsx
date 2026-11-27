@@ -93,6 +93,10 @@ const BalonOroPage = named(
   () => import("@/pages/spectator/BalonOro"),
   "BalonOroPage",
 );
+const LegendsPage = named(
+  () => import("@/pages/spectator/Legends"),
+  "LegendsPage",
+);
 const GossipPage = named(
   () => import("@/pages/spectator/Gossip"),
   "GossipPage",
@@ -167,6 +171,7 @@ export default function App() {
           <Route path="chismes" element={<GossipPage />} />
           <Route path="board" element={<BoardPage />} />
           <Route path="balon-de-oro" element={<BalonOroPage />} />
+          <Route path="top-historico" element={<LegendsPage />} />
           <Route path="mercado" element={<MarketPage />} />
           <Route path="mi-club" element={<MyClubPage />} />
           <Route path="equipos" element={<TeamsPage />} />

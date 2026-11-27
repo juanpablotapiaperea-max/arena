@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X, Heart, MonitorPlay, Crown } from 'lucide-react';
+import { Accessibility, BarChart3, CalendarDays, Coins, History, LogOut, Menu, Newspaper, Radio, Repeat, Shield, Trophy, User, Users, X, Heart, MonitorPlay, Crown, Medal } from 'lucide-react';
 import { Ticker } from './Ticker';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './ui';
@@ -53,6 +53,7 @@ const SIDE_GROUPS = (owner: boolean): { title: string; tabs: Tab[] }[] => [
     tabs: [
       { to: '/estadisticas', label: 'Estadísticas', icon: BarChart3 },
       { to: '/balon-de-oro', label: 'Balón de Oro', icon: Crown },
+      { to: '/top-historico', label: 'Top histórico', icon: Medal },
       { to: '/equipos', label: 'Equipos', icon: Users },
       { to: '/historia', label: 'Historia', icon: History },
     ],
@@ -67,6 +68,7 @@ const MORE_TABS = [
   { to: '/chismes', label: 'Chismes', icon: Heart },
   { to: '/mercado', label: 'Mercado y draft', icon: Repeat },
   { to: '/balon-de-oro', label: 'Balón de Oro', icon: Crown },
+  { to: '/top-historico', label: 'Top histórico', icon: Medal },
   { to: '/equipos', label: 'Equipos', icon: Users },
   { to: '/historia', label: 'Historia', icon: History },
   { to: '/perfil', label: 'Perfil', icon: User },
