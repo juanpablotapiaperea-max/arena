@@ -34,9 +34,24 @@ interface LegendRow {
   goalie_wins: number;
   titles: string[];
   awards: string[];
+  value: number;
+  goalie_value: number;
+  by_comp:
+    | {
+        comp: string;
+        f: number;
+        gp: number;
+        g: number;
+        a: number;
+        ggp: number;
+        w: number;
+        so: number;
+      }[]
+    | null;
 }
 
 type SortKey =
+  | "value"
   | "points"
   | "goals"
   | "assists"
@@ -53,6 +68,7 @@ type PosFilter = "all" | "F" | "D" | "G";
 const MIN_GP_AVG = 20; // para los promedios, mínimo de partidos
 
 const SKATER_SORTS: [SortKey, string][] = [
+  ["value", "Valor"],
   ["points", "Puntos"],
   ["goals", "Goles"],
   ["assists", "Asistencias"],
@@ -63,6 +79,7 @@ const SKATER_SORTS: [SortKey, string][] = [
   ["mvps", "MVP"],
 ];
 const GOALIE_SORTS: [SortKey, string][] = [
+  ["value", "Valor"],
   ["wins", "Victorias"],
   ["gp", "Partidos"],
   ["shutouts", "En cero"],
@@ -81,6 +98,8 @@ const posLabel = (p: string) =>
 
 function value(r: LegendRow, k: SortKey): number {
   switch (k) {
+    case "value":
+      return r.pos === "G" ? n(r.goalie_value) : n(r.value);
     case "points":
       return n(r.goals) + n(r.assists);
     case "goals":
@@ -151,7 +170,7 @@ function History() {
   const reduce = useReducedMotion();
   const { byId } = useTeams();
   const [pos, setPos] = useState<PosFilter>("all");
-  const [sort, setSort] = useState<SortKey>("points");
+  const [sort, setSort] = useState<SortKey>("value");
   const [query, setQuery] = useState("");
   const [retired, setRetired] = useState(true);
   const [shown, setShown] = useState(50);
@@ -186,8 +205,7 @@ function History() {
       .sort(
         (a, b) =>
           b.v - a.v ||
-          value(b.r, goalies ? "wins" : "points") -
-            value(a.r, goalies ? "wins" : "points") ||
+          value(b.r, "value") - value(a.r, "value") ||
           n(b.r.gp) - n(a.r.gp),
       )
       .map((x) => x.r);
@@ -306,6 +324,17 @@ function History() {
             Incluir retirados
           </label>
         </div>
+        {activeSort === "value" && (
+          <p className="text-xs text-muted">
+            No es lo mismo destacar en Segunda que en Primera. El valor suma{" "}
+            {goalies
+              ? "victorias, porterías en cero (×3)"
+              : "goles, asistencias"}
+            , MVP (×2) y títulos (×15), según el peso de cada competición:
+            Primera, OHL y ALL STARS ×1 · CHAMPIONS ×1.25 · COPA ×0.75 · Segunda
+            ×0.25.
+          </p>
+        )}
         {(activeSort === "ppg" || activeSort === "svpct") && (
           <p className="text-xs text-muted">
             Promedios con al menos {MIN_GP_AVG} partidos jugados.
@@ -397,6 +426,7 @@ function format(r: LegendRow, k: SortKey): string {
   const v = value(r, k);
   if (k === "ppg") return v.toFixed(2);
   if (k === "svpct") return `${(v * 100).toFixed(1)}%`;
+  if (k === "value") return String(Math.round(v));
   return String(v);
 }
 
@@ -424,6 +454,7 @@ function LegendItem({
         ["En cero", n(r.shutouts), "shutouts"],
         ["% atajadas", `${(svPct(r) * 100).toFixed(1)}`, "svpct"],
         ["GC/PJ", gp ? (n(r.goals_against) / gp).toFixed(2) : "—", null],
+        ["Valor", Math.round(n(r.goalie_value)), "value"],
       ]
     : [
         ["PJ", gp, "gp"],
@@ -436,8 +467,9 @@ function LegendItem({
           gp ? ((n(r.goals) + n(r.assists)) / gp).toFixed(2) : "—",
           "ppg",
         ],
+        ["Valor", Math.round(n(r.value)), "value"],
       ];
-  const extras = r.titles.length + r.awards.length;
+  const extras = r.titles.length + r.awards.length + (r.by_comp?.length ?? 0);
 
   return (
     <li
@@ -477,7 +509,9 @@ function LegendItem({
         <div
           className={cn(
             "grid flex-1 gap-1.5 text-center",
-            goalie ? "grid-cols-5" : "grid-cols-3 sm:grid-cols-6",
+            goalie
+              ? "grid-cols-3 sm:grid-cols-6"
+              : "grid-cols-4 sm:grid-cols-7",
           )}
         >
           {cells.map(([label, v, k]) => (
@@ -523,6 +557,78 @@ function LegendItem({
 
       {open && extras > 0 && (
         <div className="space-y-2 border-t border-line px-3 pb-3 pt-2">
+          {(r.by_comp?.length ?? 0) > 0 && (
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
+                Por competición
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs tabular">
+                  <thead className="text-muted">
+                    <tr>
+                      <th className="py-1 pr-2 font-semibold">Competición</th>
+                      <th className="px-2 py-1 font-semibold">Peso</th>
+                      <th className="px-2 py-1 text-right font-semibold">PJ</th>
+                      {goalie ? (
+                        <>
+                          <th className="px-2 py-1 text-right font-semibold">
+                            Vict.
+                          </th>
+                          <th className="px-2 py-1 text-right font-semibold">
+                            En cero
+                          </th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-2 py-1 text-right font-semibold">
+                            G
+                          </th>
+                          <th className="px-2 py-1 text-right font-semibold">
+                            A
+                          </th>
+                          <th className="px-2 py-1 text-right font-semibold">
+                            Pts
+                          </th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.by_comp!.map((c) => (
+                      <tr key={c.comp} className="border-t border-line/60">
+                        <td className="py-1 pr-2 font-medium">{c.comp}</td>
+                        <td
+                          className={cn(
+                            "px-2 py-1",
+                            Number(c.f) < 1 ? "text-muted" : "text-secondary",
+                          )}
+                        >
+                          ×{Number(c.f)}
+                        </td>
+                        <td className="px-2 py-1 text-right">
+                          {goalie ? c.ggp : c.gp}
+                        </td>
+                        {goalie ? (
+                          <>
+                            <td className="px-2 py-1 text-right">{c.w}</td>
+                            <td className="px-2 py-1 text-right">{c.so}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-2 py-1 text-right">{c.g}</td>
+                            <td className="px-2 py-1 text-right">{c.a}</td>
+                            <td className="px-2 py-1 text-right font-semibold">
+                              {n(c.g) + n(c.a)}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {r.titles.length > 0 && (
             <div>
               <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
@@ -571,16 +677,23 @@ function BestRatings() {
   const { byId } = useTeams();
   const all = usePlayers();
   const [pos, setPos] = useState<PosFilter>("all");
+  const [div, setDiv] = useState<0 | 1 | 2>(0);
   const [shown, setShown] = useState(50);
   const rows = useMemo(
     () =>
       (all.data ?? [])
-        .filter((p) => !p.retired && (pos === "all" || p.position === pos))
+        .filter(
+          (p) =>
+            !p.retired &&
+            (pos === "all" || p.position === pos) &&
+            (!div ||
+              (p.team_id ? byId.get(p.team_id)?.division : null) === div),
+        )
         .sort(
           (a, b) =>
             b.rating - a.rating || b.potential - a.potential || a.age - b.age,
         ),
-    [all.data, pos],
+    [all.data, pos, div, byId],
   );
   return (
     <div className="space-y-4">
@@ -626,6 +739,35 @@ function BestRatings() {
           </button>
         ))}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+          División
+        </span>
+        {(
+          [
+            [0, "Todas"],
+            [1, "Primera"],
+            [2, "Segunda"],
+          ] as const
+        ).map(([k, l]) => (
+          <button
+            key={k}
+            onClick={() => {
+              setDiv(k);
+              setShown(50);
+            }}
+            aria-pressed={div === k}
+            className={cn(
+              "focus-ring min-h-9 rounded-full border px-3 text-xs font-semibold",
+              div === k
+                ? "border-primary bg-primary/15 text-fg"
+                : "border-line text-muted hover:text-fg",
+            )}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
       {all.isLoading ? (
         <Spinner />
       ) : all.error ? (
@@ -660,8 +802,21 @@ function BestRatings() {
                         {p.first_name} {p.last_name}
                       </div>
                       <div className="text-xs text-muted">
-                        {t?.name ?? "Sin equipo"} · {posLabel(p.position)} ·{" "}
-                        {p.age} años{p.injury_days > 0 ? " · Lesionado" : ""}
+                        {t?.name ?? "Sin equipo"}
+                        {t?.division ? (
+                          <span
+                            className={cn(
+                              "ml-1.5 rounded px-1.5 py-px text-[10px] font-bold uppercase",
+                              t.division === 1
+                                ? "bg-primary/20 text-fg"
+                                : "bg-surface-2 text-muted",
+                            )}
+                          >
+                            {t.division === 1 ? "Primera" : "Segunda"}
+                          </span>
+                        ) : null}{" "}
+                        · {posLabel(p.position)} · {p.age} años
+                        {p.injury_days > 0 ? " · Lesionado" : ""}
                       </div>
                     </div>
                   </div>
